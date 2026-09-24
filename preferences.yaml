@@ -40,8 +40,20 @@ interests: |
   computational creativity. Prefer rigorous work with clear methods.
   Deprioritize incremental benchmark papers.
 
-# How many candidates to pull per source, and how many to show after ranking.
+# What to put first. Order of importance: has code > datasets > CPU-friendly,
+# then a blend of relevance and "would impress a recruiter if I built it".
+priorities:
+  code_first: true            # papers with a public repo (Papers with Code / Hugging Face) rank above the rest
+  require_code: false         # true = hide papers without code entirely
+  min_datasets: 2             # prefer papers evaluated on at least this many datasets
+  prefer_cpu: true            # prefer papers you can replicate without a GPU
+  weights:                    # how the 0-10 scores blend inside each tier
+    relevance: 0.5
+    recruiter: 0.5
+
+# How many candidates to pull per source, how many the model reads, how many to show.
 candidates_per_source: 15
+rank_at_most: 24              # a local 4B model takes ~20-40 s per 8 papers; raise this on Claude
 show_top: 10
 
 # The exact shape of every summary. Markdown; Claude fills it in.
@@ -63,3 +75,8 @@ summary_template: |
 
   ## Key terms
   3–6 terms with one-line definitions.
+
+  ## Build it
+  How I'd implement this as a portfolio project: the datasets to use, whether a laptop CPU is
+  enough (and what to scale down if not), the minimal version worth shipping in 1–2 weeks,
+  and the one result or demo that would impress a recruiter.

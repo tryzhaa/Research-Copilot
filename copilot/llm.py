@@ -19,10 +19,24 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 RANK_BATCH = 8  # small local models rank more reliably, and fit their context, a few papers at a time
 
 RANK_SYSTEM = (
-    "You are a research assistant ranking papers for one specific researcher. "
-    "Score each paper 0-10 for how well it matches their current query AND standing interests. "
-    "Reward rigor and genuine novelty; penalize papers that only match on keywords. "
-    "Give a one-sentence reason that names what specifically makes it relevant or not."
+    "You are a research assistant helping one person pick papers to implement in code for their portfolio. "
+    "For EVERY candidate, return:\n"
+    "- relevance (0-10): fit with their current query AND standing interests. Reward rigor and genuine "
+    "novelty; penalize papers that only match on keywords. relevance_reason: one sentence naming what "
+    "specifically makes it relevant or not.\n"
+    "- recruiter (0-10): how interesting and impressive a from-scratch implementation of this paper would "
+    "look to a tech recruiter or hiring manager. High: a recognizable, current problem; a clear, "
+    "demo-able result with measurable numbers; real engineering depth (not a thin wrapper); finishable "
+    "by one person in a few weeks. Low: pure theory with nothing to build, trivial tweaks of a baseline, "
+    "results that need a lab's compute, or problems nobody outside the subfield would recognize. "
+    "recruiter_reason: one sentence on what would impress or what would fall flat.\n"
+    "- datasets: the named datasets the paper evaluates on (e.g. [\"CIFAR-10\", \"QM9\"]). Only names "
+    "stated in the text; an empty list if none are named. Never guess.\n"
+    "- needs_gpu: true if reproducing the core result realistically needs a GPU (training large "
+    "networks, transformers beyond small scale, diffusion or LLM training, ImageNet-scale data). false "
+    "if it runs on a laptop CPU in hours: classical ML, algorithms, small networks on small data, "
+    "inference with small pretrained models, or theory. compute_note: a few words, e.g. "
+    "\"small MLP on MNIST, CPU fine\" or \"trains 1B-param model on 64 GPUs\"."
 )
 SUMMARY_SYSTEM = (
     "You write precise research summaries for one researcher. Follow their template exactly. "
@@ -34,8 +48,13 @@ SUMMARY_SYSTEM = (
 
 class Score(BaseModel):
     index: int
-    score: float  # 0-10
-    reason: str
+    relevance: float  # 0-10
+    relevance_reason: str
+    recruiter: float  # 0-10
+    recruiter_reason: str
+    datasets: list[str]
+    needs_gpu: bool
+    compute_note: str
 
 
 class Ranking(BaseModel):
@@ -45,8 +64,19 @@ class Ranking(BaseModel):
 # ---------- shared ----------
 
 def _rank_prompt(papers: list[Paper], query: str, prefs: dict, liked: list[str], disliked: list[str], abstract_chars: int) -> str:
+    def code(p: Paper) -> str:
+        if not p.has_code:
+            return "no public code"
+        bits = ["official code" if p.code_official else "public code"]
+        if p.code_framework:
+            bits.append(p.code_framework)
+        if p.stars:
+            bits.append(f"{p.stars} GitHub stars")
+        return ", ".join(bits)
+
     listing = "\n\n".join(
-        f"[{i}] {p.title} ({p.year}, {p.venue or p.source}, {p.citations} citations)\n{p.abstract[:abstract_chars]}"
+        f"[{i}] {p.title} ({p.year}, {p.venue or p.source}, {p.citations} citations, {code(p)})\n"
+        f"{p.abstract[:abstract_chars]}"
         for i, p in enumerate(papers)
     )
     feedback = ""
@@ -55,14 +85,20 @@ def _rank_prompt(papers: list[Paper], query: str, prefs: dict, liked: list[str],
     if disliked:
         feedback += "\nPapers I rated poorly before:\n" + "\n".join(f"- {t}" for t in disliked[-15:])
     return (f"My standing interests:\n{prefs['interests']}{feedback}\n\n"
-            f"Current query: {query}\n\nCandidates:\n{listing}\n\nScore every candidate.")
+            f"Current query: {query}\n\nCandidates:\n{listing}\n\nAssess every candidate.")
 
 
 def _apply_scores(papers: list[Paper], ranking: Ranking) -> None:
     for s in ranking.scores:
         if 0 <= s.index < len(papers):
-            papers[s.index].score = max(0.0, min(10.0, s.score))
-            papers[s.index].reason = s.reason
+            p = papers[s.index]
+            p.score = max(0.0, min(10.0, s.relevance))
+            p.reason = s.relevance_reason
+            p.recruiter = max(0.0, min(10.0, s.recruiter))
+            p.recruiter_reason = s.recruiter_reason
+            p.datasets = [d.strip() for d in s.datasets if d.strip()][:12]
+            p.needs_gpu = s.needs_gpu
+            p.compute_note = s.compute_note
 
 
 def _summary_request(paper: Paper, prefs: dict, template: str, has_full_text: bool) -> str:
@@ -142,7 +178,7 @@ def _ollama_chat(prefs: dict, system: str, user: str, max_tokens: int, schema: d
 
 def _rank_ollama(papers: list[Paper], query: str, prefs: dict, liked: list[str], disliked: list[str]) -> None:
     prompt = _rank_prompt(papers, query, prefs, liked, disliked, abstract_chars=700)
-    raw = _ollama_chat(prefs, RANK_SYSTEM, prompt, max_tokens=120 * len(papers) + 400, schema=Ranking.model_json_schema())
+    raw = _ollama_chat(prefs, RANK_SYSTEM, prompt, max_tokens=260 * len(papers) + 400, schema=Ranking.model_json_schema())
     _apply_scores(papers, Ranking.model_validate_json(raw))
 
 
