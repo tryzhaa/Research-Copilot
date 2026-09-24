@@ -54,6 +54,32 @@ def search_arxiv(query: str, categories: list[str], limit: int, field: str) -> l
     return papers
 
 
+def search_hf_papers(query: str, limit: int, field: str) -> list[Paper]:
+    """Hugging Face Papers — where paperswithcode.com now redirects. Live, with GitHub repos and stars."""
+    r = _get("https://huggingface.co/api/papers/search", {"q": query, "limit": limit})
+    papers = []
+    for hit in r.json():
+        p = hit.get("paper") or {}
+        arxiv_id = p.get("id", "")
+        if not arxiv_id:
+            continue
+        papers.append(Paper(
+            title=" ".join((p.get("title") or "").split()),
+            abstract=" ".join((p.get("summary") or "").split()),
+            authors=[a["name"] for a in (p.get("authors") or [])[:12] if a.get("name")],
+            year=int(p["publishedAt"][:4]) if p.get("publishedAt") else None,
+            venue="arXiv",
+            arxiv_id=arxiv_id,
+            url=f"https://huggingface.co/papers/{arxiv_id}",
+            pdf_url=f"https://arxiv.org/pdf/{arxiv_id}",
+            code_url=p.get("githubRepo") or "",
+            stars=p.get("githubStars") or 0,
+            source="Hugging Face",
+            field=field,
+        ))
+    return papers
+
+
 def _openalex_abstract(inv: dict | None) -> str:
     if not inv:
         return ""

@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field as dc_field
 import re
 
 
@@ -6,7 +6,7 @@ import re
 class Paper:
     title: str
     abstract: str = ""
-    authors: list[str] = field(default_factory=list)
+    authors: list[str] = dc_field(default_factory=list)
     year: int | None = None
     venue: str = ""
     doi: str = ""
@@ -16,9 +16,23 @@ class Paper:
     citations: int = 0
     source: str = ""
     field: str = ""
+    # Code, from Papers with Code / Hugging Face
+    code_url: str = ""
+    code_official: bool = False
+    code_framework: str = ""
+    stars: int = 0
     # Filled in by the ranker
-    score: float | None = None
+    score: float | None = None          # relevance to query + interests, 0-10
     reason: str = ""
+    recruiter: float | None = None      # how impressive an implementation would look to recruiters, 0-10
+    recruiter_reason: str = ""
+    datasets: list[str] = dc_field(default_factory=list)  # datasets it's evaluated on
+    needs_gpu: bool | None = None       # to replicate the core result
+    compute_note: str = ""
+
+    @property
+    def has_code(self) -> bool:
+        return bool(self.code_url)
 
     @property
     def ids(self) -> list[str]:
