@@ -7,6 +7,7 @@ Two providers, picked by `provider` in preferences.yaml:
 import base64
 import io
 import os
+import re
 
 import httpx
 from pydantic import BaseModel
@@ -103,29 +104,45 @@ def summarize(paper: Paper, prefs: dict, template: str) -> tuple[str, bool]:
 
 # ---------- ollama (local, open-weight) ----------
 
-def _ollama_chat(prefs: dict, system: str, user: str, schema: dict | None = None) -> str:
+def _ollama_chat(prefs: dict, system: str, user: str, max_tokens: int, schema: dict | None = None) -> str:
+    think = prefs.get("effort") == "high"
     body = {
         "model": prefs["model"],
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "stream": False,
-        "think": prefs.get("effort") == "high",
-        "options": {"num_ctx": prefs.get("context_tokens", 12288), "temperature": 0.2},
+        "think": think,
+        "options": {
+            "num_ctx": prefs.get("context_tokens", 12288),
+            "temperature": 0.2,
+            # Hard cap. Small models can loop forever (especially reasoning models that
+            # ignore think=false), and without a cap the request just hangs.
+            "num_predict": max_tokens * (3 if think else 1),
+        },
     }
     if schema:
         body["format"] = schema
     try:
-        r = httpx.post(f"{OLLAMA_URL}/api/chat", json=body, timeout=900)
+        r = httpx.post(f"{OLLAMA_URL}/api/chat", json=body, timeout=httpx.Timeout(600, connect=5))
     except httpx.ConnectError:
         raise RuntimeError("Can't reach Ollama. Start it with `ollama serve` (or open the Ollama app).")
+    except httpx.ReadTimeout:
+        raise RuntimeError(f"{prefs['model']} took over 10 minutes. Try a smaller model or lower context_tokens.")
     if r.status_code == 404:
         raise RuntimeError(f"Model {prefs['model']} isn't installed. Run `ollama pull {prefs['model']}`.")
     r.raise_for_status()
-    return r.json()["message"]["content"]
+    data = r.json()
+    content = re.sub(r"<think>.*?(</think>|$)", "", data["message"].get("content", ""), flags=re.S).strip()
+    if not content:
+        why = "spent its whole budget thinking" if data["message"].get("thinking") else "returned nothing"
+        raise RuntimeError(f"{prefs['model']} {why}. Try a non-reasoning model such as qwen3:4b.")
+    if data.get("done_reason") == "length" and schema:
+        raise RuntimeError(f"{prefs['model']} ran out of room before finishing its answer.")
+    return content
 
 
 def _rank_ollama(papers: list[Paper], query: str, prefs: dict, liked: list[str], disliked: list[str]) -> None:
     prompt = _rank_prompt(papers, query, prefs, liked, disliked, abstract_chars=700)
-    raw = _ollama_chat(prefs, RANK_SYSTEM, prompt, schema=Ranking.model_json_schema())
+    raw = _ollama_chat(prefs, RANK_SYSTEM, prompt, max_tokens=120 * len(papers) + 400, schema=Ranking.model_json_schema())
     _apply_scores(papers, Ranking.model_validate_json(raw))
 
 
@@ -158,7 +175,7 @@ def _summarize_ollama(paper: Paper, prefs: dict, template: str, pdf: bytes | Non
     prompt = _summary_request(paper, prefs, template, has_full_text)
     if has_full_text:
         prompt = f"Full text of the paper:\n<paper>\n{text}\n</paper>\n\n{prompt}"
-    return _ollama_chat(prefs, SUMMARY_SYSTEM, prompt).strip(), has_full_text
+    return _ollama_chat(prefs, SUMMARY_SYSTEM, prompt, max_tokens=3000), has_full_text
 
 
 # ---------- anthropic (Claude API) ----------
