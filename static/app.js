@@ -5,6 +5,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const papers = new Map();   // key -> paper, for every row on screen
 let libEntries = [];
 let libFilter = "all";
+let modelName = "the model";
 
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
@@ -201,7 +202,7 @@ $("#search-form").addEventListener("submit", async e => {
   searching = true;
   $("#results").innerHTML = "";
   $("#errors").innerHTML = "";
-  const stop = ticker(s => setStatus(`searching and ranking · ${s}s`, true));
+  const stop = ticker(s => setStatus(`searching, then ${modelName} reads the shortlist (a few minutes on a local model) · ${s}s`, true));
   try {
     const data = await api("/api/search", { query, fields, use_s2: $("#use-s2").checked, code_only: $("#code-only").checked });
     stop();
@@ -292,6 +293,7 @@ $$("nav button").forEach(b => b.addEventListener("click", () => showView(b.datas
       $("#" + id).checked = !!store.get(id);
       $("#" + id).addEventListener("change", e => store.set(id, e.target.checked));
     }
+    modelName = prefs.model;
     $("#foot").textContent = `${prefs.model} via ${prefs.provider} · ${prefs.effort} effort · settings live in preferences.yaml`;
     refreshLibCount();
   } catch (err) {

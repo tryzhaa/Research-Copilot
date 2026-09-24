@@ -7,7 +7,7 @@
 provider: ollama
 model: qwen3:4b
 effort: medium                # low | medium | high. On ollama, high turns on the model's thinking: better, much slower.
-context_tokens: 12288         # ollama only: how much text the model reads at once. More needs more RAM.
+context_tokens: 8192          # ollama only: how much text the model reads at once. More needs more RAM.
 
 # Which fields to search, and where. Toggle them on/off in the UI too.
 fields:
@@ -53,7 +53,7 @@ priorities:
 
 # How many candidates to pull per source, how many the model reads, how many to show.
 candidates_per_source: 15
-rank_at_most: 24              # a local 4B model takes ~20-40 s per 8 papers; raise this on Claude
+rank_at_most: 16              # on an 8 GB Mac a 4B model needs ~1-2 min per 8 papers; raise this on Claude
 show_top: 10
 
 # The exact shape of every summary. Markdown; Claude fills it in.

@@ -6,8 +6,10 @@ Two providers, picked by `provider` in preferences.yaml:
 """
 import base64
 import io
+import logging
 import os
 import re
+import time
 
 import httpx
 from pydantic import BaseModel
@@ -16,26 +18,29 @@ from .models import Paper
 
 MAX_PDF_BYTES = 25 * 1024 * 1024
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+log = logging.getLogger("uvicorn.error")
 RANK_BATCH = 8  # small local models rank more reliably, and fit their context, a few papers at a time
 
 RANK_SYSTEM = (
     "You are a research assistant helping one person pick papers to implement in code for their portfolio. "
+    "Address them as \"you\" in reasons. "
     "For EVERY candidate, return:\n"
     "- relevance (0-10): fit with their current query AND standing interests. Reward rigor and genuine "
     "novelty; penalize papers that only match on keywords. relevance_reason: one sentence naming what "
-    "specifically makes it relevant or not.\n"
+    "specifically makes it relevant or not (max 20 words).\n"
     "- recruiter (0-10): how interesting and impressive a from-scratch implementation of this paper would "
     "look to a tech recruiter or hiring manager. High: a recognizable, current problem; a clear, "
     "demo-able result with measurable numbers; real engineering depth (not a thin wrapper); finishable "
     "by one person in a few weeks. Low: pure theory with nothing to build, trivial tweaks of a baseline, "
     "results that need a lab's compute, or problems nobody outside the subfield would recognize. "
-    "recruiter_reason: one sentence on what would impress or what would fall flat.\n"
-    "- datasets: the named datasets the paper evaluates on (e.g. [\"CIFAR-10\", \"QM9\"]). Only names "
-    "stated in the text; an empty list if none are named. Never guess.\n"
+    "recruiter_reason: one sentence on what would impress or what would fall flat (max 20 words).\n"
+    "- datasets: named benchmark datasets the paper evaluates on, e.g. [\"CIFAR-10\", \"QM9\", \"ZINC\"]. "
+    "Only proper names stated in the text. NOT descriptions like \"molecular data\" or \"3D structures\", "
+    "and not chemical formulas. An empty list if none are named. Never guess.\n"
     "- needs_gpu: true if reproducing the core result realistically needs a GPU (training large "
     "networks, transformers beyond small scale, diffusion or LLM training, ImageNet-scale data). false "
     "if it runs on a laptop CPU in hours: classical ML, algorithms, small networks on small data, "
-    "inference with small pretrained models, or theory. compute_note: a few words, e.g. "
+    "inference with small pretrained models, or theory. compute_note: at most 8 words, e.g. "
     "\"small MLP on MNIST, CPU fine\" or \"trains 1B-param model on 64 GPUs\"."
 )
 SUMMARY_SYSTEM = (
@@ -96,9 +101,21 @@ def _apply_scores(papers: list[Paper], ranking: Ranking) -> None:
             p.reason = s.relevance_reason
             p.recruiter = max(0.0, min(10.0, s.recruiter))
             p.recruiter_reason = s.recruiter_reason
-            p.datasets = [d.strip() for d in s.datasets if d.strip()][:12]
+            p.datasets = _clean_datasets(s.datasets)
             p.needs_gpu = s.needs_gpu
             p.compute_note = s.compute_note
+
+
+def _clean_datasets(names: list[str]) -> list[str]:
+    """Keep proper dataset names; small models also return descriptions like "3D molecular data"."""
+    out = []
+    for d in names:
+        d = re.sub(r"\s+(dataset|datasets|benchmark)$", "", d.strip(), flags=re.I)
+        if not d or re.search(r"\bdata\b", d, re.I) or not re.search(r"[A-Z0-9]", d):
+            continue
+        if d.lower() not in (o.lower() for o in out):
+            out.append(d)
+    return out[:12]
 
 
 def _summary_request(paper: Paper, prefs: dict, template: str, has_full_text: bool) -> str:
@@ -147,8 +164,9 @@ def _ollama_chat(prefs: dict, system: str, user: str, max_tokens: int, schema: d
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "stream": False,
         "think": think,
+        "keep_alive": "30m",  # reloading a model costs ~30 s on an 8 GB Mac
         "options": {
-            "num_ctx": prefs.get("context_tokens", 12288),
+            "num_ctx": prefs.get("context_tokens", 8192),
             "temperature": 0.2,
             # Hard cap. Small models can loop forever (especially reasoning models that
             # ignore think=false), and without a cap the request just hangs.
@@ -178,7 +196,9 @@ def _ollama_chat(prefs: dict, system: str, user: str, max_tokens: int, schema: d
 
 def _rank_ollama(papers: list[Paper], query: str, prefs: dict, liked: list[str], disliked: list[str]) -> None:
     prompt = _rank_prompt(papers, query, prefs, liked, disliked, abstract_chars=700)
-    raw = _ollama_chat(prefs, RANK_SYSTEM, prompt, max_tokens=260 * len(papers) + 400, schema=Ranking.model_json_schema())
+    t0 = time.monotonic()
+    raw = _ollama_chat(prefs, RANK_SYSTEM, prompt, max_tokens=200 * len(papers) + 300, schema=Ranking.model_json_schema())
+    log.info("ranked %d papers in %.0fs", len(papers), time.monotonic() - t0)
     _apply_scores(papers, Ranking.model_validate_json(raw))
 
 
@@ -200,7 +220,7 @@ def _pdf_text(pdf: bytes, max_chars: int) -> str:
 
 def _summarize_ollama(paper: Paper, prefs: dict, template: str, pdf: bytes | None) -> tuple[str, bool]:
     # ~4 chars per token; leave room for the template, instructions and the answer.
-    budget = max(4000, (prefs.get("context_tokens", 12288) - 4000) * 4)
+    budget = max(4000, (prefs.get("context_tokens", 8192) - 4000) * 4)
     text = ""
     if pdf:
         try:
