@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Research Copilot</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <span class="mark">research copilot</span>
+    <nav>
+      <button data-view="search" class="on">search</button>
+      <button data-view="library">library <span id="lib-count"></span></button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-search">
+      <form id="search-form" autocomplete="off">
+        <input id="q" placeholder="What are you looking for?" aria-label="Search query" autofocus>
+        <div class="controls">
+          <div id="fields" class="toggles"></div>
+          <label class="toggle"><input type="checkbox" id="use-s2"><span>semantic scholar</span></label>
+        </div>
+      </form>
+      <p id="status" class="status" aria-live="polite"></p>
+      <ul id="errors" class="errors"></ul>
+      <ol id="results" class="papers"></ol>
+    </section>
+
+    <section id="view-library" hidden>
+      <div class="lib-head">
+        <div class="toggles" id="lib-filter" role="radiogroup">
+          <button data-filter="all" class="on">all</button>
+          <button data-filter="saved">saved</button>
+          <button data-filter="liked">liked</button>
+          <button data-filter="summarized">summarized</button>
+        </div>
+        <button id="export-bib" class="quiet">export .bib</button>
+      </div>
+      <ol id="library" class="papers"></ol>
+    </section>
+  </main>
+
+  <footer id="foot"></footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
