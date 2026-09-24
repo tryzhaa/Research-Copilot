@@ -1,4 +1,5 @@
 """Research Copilot web app. Run: uvicorn app:app --reload  →  http://localhost:8000"""
+from contextlib import asynccontextmanager
 from dataclasses import fields
 from pathlib import Path
 
@@ -7,16 +8,22 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from copilot import library
+from copilot import library, pwc
 from copilot.llm import rank, summarize
 from copilot.models import Paper
 from copilot.prefs import load_prefs
-from copilot.search import search_all
+from copilot.search import prioritize, search_all, shortlist
 
 ROOT = Path(__file__).parent
 PAPER_FIELDS = {f.name for f in fields(Paper)}
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    pwc.build_in_background()  # one-time Papers with Code index; searches work without it meanwhile
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
@@ -28,6 +35,7 @@ def serialize(p: Paper) -> dict:
     entry = library.get(p.key) or {}
     return p.to_dict() | {
         "key": p.key,
+        "has_code": p.has_code,
         "bibtex": p.bibtex(),
         "rating": entry.get("rating", 0),
         "saved": entry.get("saved", False),
@@ -38,6 +46,7 @@ class SearchIn(BaseModel):
     query: str
     fields: list[str]
     use_s2: bool = False
+    code_only: bool = False
 
 
 class PaperIn(BaseModel):
@@ -81,15 +90,20 @@ def search(body: SearchIn):
     field_keys = [k for k in body.fields if k in prefs["fields"]]
     if not body.query.strip() or not field_keys:
         raise HTTPException(400, "Enter a query and pick at least one field.")
-    papers, errors = search_all(body.query.strip(), prefs, field_keys, body.use_s2)
+    priorities = prefs.get("priorities", {}) | ({"require_code": True} if body.code_only else {})
+    papers, errors = search_all(body.query.strip(), prefs | {"priorities": priorities}, field_keys, body.use_s2)
     candidates = len(papers)
+    papers = shortlist(papers, prefs.get("rank_at_most", 24), priorities)
     liked, disliked = library.rated_titles()
     try:
         papers = rank(papers, body.query, prefs, liked, disliked)
     except Exception as e:
         errors.append(f"Ranking failed, showing unranked results: {e}")
+    papers = prioritize(papers, priorities)
     return {
         "candidates": candidates,
+        "with_code": sum(p.has_code for p in papers),
+        "code_index": pwc.status(),
         "papers": [serialize(p) for p in papers[:prefs["show_top"]]],
         "errors": errors,
     }

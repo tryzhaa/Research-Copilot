@@ -26,7 +26,10 @@
         <input id="q" placeholder="What are you looking for?" aria-label="Search query" autofocus>
         <div class="controls">
           <div id="fields" class="toggles"></div>
-          <label class="toggle"><input type="checkbox" id="use-s2"><span>semantic scholar</span></label>
+          <div class="toggles">
+            <label class="toggle"><input type="checkbox" id="code-only"><span>code only</span></label>
+            <label class="toggle"><input type="checkbox" id="use-s2"><span>semantic scholar</span></label>
+          </div>
         </div>
       </form>
       <p id="status" class="status" aria-live="polite"></p>

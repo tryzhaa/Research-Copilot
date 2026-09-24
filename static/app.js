@@ -70,13 +70,29 @@ function row(p, entry = null) {
   ].filter(Boolean).map(esc).join(" · ");
   const hasSummary = entry && entry.summary;
 
+  // Signals behind the ranking. Lit = meets your priority, dim = doesn't, absent = unknown.
+  const sig = (ok, text) => `<span class="${ok ? "ok" : "no"}">${text}</span>`;
+  const codeBits = [p.code_official ? "official" : "", p.code_framework, p.stars ? `★${p.stars}` : ""].filter(Boolean).join(" · ");
+  const signals = [
+    p.code_url
+      ? sig(true, `<a href="${esc(p.code_url)}" target="_blank" rel="noopener">code ↗</a>${codeBits ? ` ${esc(codeBits)}` : ""}`)
+      : sig(false, "no code"),
+    p.datasets && p.datasets.length
+      ? sig(p.datasets.length >= 2, `${p.datasets.length} dataset${p.datasets.length > 1 ? "s" : ""}: ${esc(p.datasets.slice(0, 4).join(", "))}${p.datasets.length > 4 ? "…" : ""}`)
+      : (p.recruiter != null ? sig(false, "no named datasets") : ""),
+    p.needs_gpu == null ? "" : sig(!p.needs_gpu, `${p.needs_gpu ? "needs gpu" : "cpu ok"}${p.compute_note ? ` · ${esc(p.compute_note)}` : ""}`),
+    p.recruiter == null ? "" : sig(p.recruiter >= 7, `recruiter ${(+p.recruiter).toFixed(0)}/10`),
+  ].filter(Boolean).join("");
+
   return `
   <li class="paper" data-key="${esc(p.key)}">
     <div class="score ${p.score != null && p.score < 5 ? "low" : ""}">${score}</div>
     <div>
       <h2><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></h2>
       <p class="meta">${meta}</p>
+      ${signals ? `<p class="signals">${signals}</p>` : ""}
       ${p.reason ? `<p class="reason">${esc(p.reason)}</p>` : ""}
+      ${p.recruiter_reason ? `<p class="reason recruiter"><span>recruiter</span> ${esc(p.recruiter_reason)}</p>` : ""}
       ${p.abstract ? `<details class="abstract"><summary>abstract</summary><p>${esc(p.abstract)}</p></details>` : ""}
       <div class="actions">
         <button data-act="summarize">${hasSummary ? "summary" : "summarize"}</button>
@@ -187,11 +203,12 @@ $("#search-form").addEventListener("submit", async e => {
   $("#errors").innerHTML = "";
   const stop = ticker(s => setStatus(`searching and ranking · ${s}s`, true));
   try {
-    const data = await api("/api/search", { query, fields, use_s2: $("#use-s2").checked });
+    const data = await api("/api/search", { query, fields, use_s2: $("#use-s2").checked, code_only: $("#code-only").checked });
     stop();
+    const index = { building: " · code index still building, using hugging face links only", missing: " · code index not built" }[data.code_index] || "";
     setStatus(data.papers.length
-      ? `${data.candidates} candidates · showing the top ${data.papers.length}`
-      : "nothing matched. try broader words or another field");
+      ? `${data.candidates} candidates · ${data.with_code} with code · showing the top ${data.papers.length}${index}`
+      : "nothing matched. try broader words, another field, or turn off code only");
     $("#errors").innerHTML = data.errors.map(m => `<li>${esc(m)}</li>`).join("");
     $("#results").innerHTML = data.papers.map(p => row(p)).join("");
   } catch (err) {
@@ -271,8 +288,10 @@ $$("nav button").forEach(b => b.addEventListener("click", () => showView(b.datas
       <label class="toggle"><input type="checkbox" value="${esc(key)}" ${!remembered || remembered.includes(key) ? "checked" : ""}><span>${esc(label)}</span></label>
     `).join("");
     $("#fields").addEventListener("change", () => store.set("fields", selectedFields()));
-    $("#use-s2").checked = !!store.get("use_s2");
-    $("#use-s2").addEventListener("change", e => store.set("use_s2", e.target.checked));
+    for (const id of ["use-s2", "code-only"]) {
+      $("#" + id).checked = !!store.get(id);
+      $("#" + id).addEventListener("change", e => store.set(id, e.target.checked));
+    }
     $("#foot").textContent = `${prefs.model} via ${prefs.provider} · ${prefs.effort} effort · settings live in preferences.yaml`;
     refreshLibCount();
   } catch (err) {
