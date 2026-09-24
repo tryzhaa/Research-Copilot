@@ -1,0 +1,65 @@
+# Research Copilot preferences — edit this to change "how we want it".
+
+# Which model ranks and summarizes.
+#   ollama    — free, open-weight, runs on this Mac. Get a model with `ollama pull qwen3:4b`.
+#               Bigger = better but needs more RAM: qwen3:8b wants ~16 GB, qwen3:14b ~24 GB.
+#   anthropic — Claude via the API (paid, needs ANTHROPIC_API_KEY), e.g. model: claude-opus-5-5
+provider: ollama
+model: qwen3:4b
+effort: medium                # low | medium | high. On ollama, high turns on the model's thinking: better, much slower.
+context_tokens: 12288         # ollama only: how much text the model reads at once. More needs more RAM.
+
+# Which fields to search, and where. Toggle them on/off in the UI too.
+fields:
+  ml:
+    label: Machine Learning
+    arxiv_categories: [cs.LG, cs.AI, cs.CL, cs.CV, stat.ML]
+    openalex_field: 17 # Computer Science
+    s2_field: Computer Science
+  math:
+    label: Mathematics
+    arxiv_categories: [math.*]
+    openalex_field: 26 # Mathematics
+    s2_field: Mathematics
+  art:
+    label: Art
+    arxiv_categories: [] # little art scholarship on arXiv
+    openalex_field: 12 # Arts and Humanities
+    s2_field: Art
+
+# Hard filters applied before any LLM call.
+filters:
+  min_year: 2015
+  min_citations: 0
+  exclude_keywords: [] # e.g. ["survey", "workshop"]
+
+# Your standing interests — the ranker scores every paper against this.
+interests: |
+  I care about papers that connect ML, mathematics and art: generative models,
+  geometry and topology in learning, mathematical structure in art and music,
+  computational creativity. Prefer rigorous work with clear methods.
+  Deprioritize incremental benchmark papers.
+
+# How many candidates to pull per source, and how many to show after ranking.
+candidates_per_source: 15
+show_top: 10
+
+# The exact shape of every summary. Markdown; Claude fills it in.
+summary_template: |
+  ## TL;DR
+  One or two sentences.
+
+  ## Problem & motivation
+
+  ## Method / argument
+  Key ideas, equations or theoretical framing (for art papers: the thesis and evidence).
+
+  ## Results / findings
+
+  ## Limitations & open questions
+
+  ## Why it matters to me
+  Connect to my stated interests.
+
+  ## Key terms
+  3–6 terms with one-line definitions.

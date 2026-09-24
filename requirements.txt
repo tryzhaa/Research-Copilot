@@ -1,0 +1,7 @@
+anthropic
+httpx
+feedparser
+pydantic
+pyyaml
+fastapi
+uvicorn
