@@ -1,0 +1,33 @@
+from pathlib import Path
+
+import pytest
+
+from copilot import library, snapshots
+from tests.conftest import paper
+
+
+@pytest.fixture(autouse=True)
+def tmp_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(library, "PATH", tmp_path / "library.json")
+
+
+def test_rate_save_and_remove() -> None:
+    a, b = paper("A", doi="10.1/a"), paper("B", doi="10.1/b")
+    library.upsert(a, rating=1)
+    library.upsert(b, rating=-1, saved=True)
+    library.upsert(a, summary="s")  # keeps the rating
+    assert library.get(a.key)["rating"] == 1 and library.get(a.key)["summary"] == "s"
+    assert library.rated_titles() == (["A"], ["B"])
+    library.remove(b.key)
+    assert library.get(b.key) is None and len(library.entries()) == 1
+
+
+def test_snapshot_round_trip_records_what_each_stage_saw(tmp_path: Path) -> None:
+    pool = [paper("A", doi="10.1/a", similarity=0.8), paper("B", doi="10.1/b", similarity=0.4)]
+    ranked = [paper("A", doi="10.1/a", similarity=0.8, score=7.0)]
+    snapshots.save("sheaf diffusion", {"interests": "i", "model": "m"}, ["ml"], pool, ranked, ["Liked title"], tmp_path)
+    [s] = snapshots.load_all(tmp_path)
+    assert s["query"] == "sheaf diffusion" and s["feedback_titles"] == ["Liked title"]
+    a, b = s["candidates"]
+    assert a["shortlisted"] and a["score"] == 7.0
+    assert not b["shortlisted"] and b["score"] is None and b["similarity"] == 0.4
