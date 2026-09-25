@@ -28,17 +28,6 @@ if TYPE_CHECKING:
     import anthropic
 
 
-def _load_dotenv() -> None:
-    """API keys from a git-ignored .env (KEY=value per line). Real env vars win."""
-    path = Path(__file__).resolve().parent.parent / ".env"
-    if path.exists():
-        for line in path.read_text().splitlines():
-            name, sep, value = line.partition("=")
-            if sep and not name.strip().startswith("#"):
-                os.environ.setdefault(name.strip(), value.strip().strip("\"'"))
-
-
-_load_dotenv()
 MAX_PDF_BYTES = 25 * 1024 * 1024
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 log = logging.getLogger("uvicorn.error")

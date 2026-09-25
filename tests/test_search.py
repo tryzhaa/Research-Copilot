@@ -112,3 +112,10 @@ def test_semantic_scholar_accepts_several_fields(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"data": []})
     sources.search_semantic_scholar("q", ["Psychology", "Sociology"], 5, "social", 2015)
     assert httpx_mock.get_requests()[0].url.params["fieldsOfStudy"] == "Psychology,Sociology"
+
+
+def test_openalex_sends_api_key_when_set(httpx_mock: HTTPXMock, monkeypatch: object) -> None:
+    monkeypatch.setenv("OPENALEX_API_KEY", "k123")  # type: ignore[attr-defined]
+    httpx_mock.add_response(json={"results": []})
+    sources.search_openalex("q", 17, 5, "ml", 2015)
+    assert httpx_mock.get_requests()[0].url.params["api_key"] == "k123"

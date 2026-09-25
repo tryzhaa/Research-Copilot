@@ -61,7 +61,11 @@ def classify(e: Exception) -> str:
 def _describe(e: Exception) -> str:
     if isinstance(e, httpx.HTTPStatusError):
         code = e.response.status_code
-        return "rate limited, try again in a minute" if code == 429 else f"HTTP {code}"
+        if code == 429:
+            return "rate limited, try again in a minute (a free API key avoids this, see preferences.yaml)"
+        if code in (401, 403):
+            return "rejected the API key, check it in .env"
+        return f"HTTP {code}"
     if isinstance(e, httpx.TimeoutException):
         return "timed out"
     if isinstance(e, httpx.TransportError):

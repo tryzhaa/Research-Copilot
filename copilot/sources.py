@@ -102,6 +102,8 @@ def search_openalex(query: str, field_id: int | None, limit: int, field: str, mi
         "filter": f"{scope},from_publication_date:{min_year}-01-01",
         "per-page": limit,
     }
+    if key := os.getenv("OPENALEX_API_KEY"):
+        params["api_key"] = key  # free key from openalex.org: no anonymous rate limiting
     if email := os.getenv("OPENALEX_EMAIL"):
         params["mailto"] = email  # polite pool: faster, more reliable
     r = _get("https://api.openalex.org/works", params)

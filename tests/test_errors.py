@@ -25,7 +25,7 @@ def test_classify(exc: Exception, kind: str) -> None:
 def test_source_error_serializes_for_the_ui() -> None:
     d = SourceFetchError("OpenAlex", "ml", _status_error(429)).to_dict()
     assert d == {"source": "OpenAlex", "field": "ml", "error_type": "rate_limit",
-                 "message": "OpenAlex (ml): rate limited, try again in a minute"}
+                 "message": "OpenAlex (ml): rate limited, try again in a minute (a free API key avoids this, see preferences.yaml)"}
 
 
 def test_timeout_is_a_ranking_error() -> None:
