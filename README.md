@@ -91,8 +91,10 @@ memorize them. It enters the blend at `weights.preference: 0` until the evaluati
 
 ## Engineering
 
-- `mypy` with `disallow_untyped_defs`, 75 `pytest` tests,
+- `mypy` with `disallow_untyped_defs` and the pydantic plugin; 83 `pytest` tests,
   mocked HTTP for every source and the LLM client.
+- `Paper` is a pydantic model, validated wherever a paper enters: sources, the browser
+  (a malformed paper gets a 422 naming the bad field), `library.json` and the eval dataset.
 - Typed errors (`SourceFetchError`, `RankingTimeoutError`, ...) reach the UI per source:
   which source failed and why (timeout, rate limit, network).
 - Sources retry 429/5xx with backoff; hosted LLMs wait out one short rate limit.

@@ -2,25 +2,23 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import fields
 import random
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from copilot import graph, library, pwc, retrieval, snapshots
 from copilot.errors import EmbeddingError, RankingError, RewriteError
 from copilot.llm import QueryRewrite, rank_with_timeout, rewrite_query, summarize
-from copilot.models import Paper
+from copilot.models import InvalidPaper, Paper
 from copilot.prefs import load_prefs
 from copilot.search import prioritize, search_all, shortlist
 
 ROOT = Path(__file__).parent
 log = logging.getLogger("uvicorn.error")
-PAPER_FIELDS = {f.name for f in fields(Paper)}
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -32,8 +30,13 @@ app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
+@app.exception_handler(InvalidPaper)
+async def invalid_paper(_: Request, e: InvalidPaper) -> JSONResponse:
+    return JSONResponse({"detail": f"Invalid paper: {e}"}, status_code=422)
+
+
 def to_paper(d: dict) -> Paper:
-    return Paper(**{k: v for k, v in d.items() if k in PAPER_FIELDS})
+    return Paper.from_dict(d)
 
 
 def serialize(p: Paper) -> dict:

@@ -17,7 +17,6 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import fields
 from pathlib import Path
 
 import numpy as np
@@ -30,13 +29,12 @@ from eval.metrics import evaluate
 
 ROOT = Path(__file__).resolve().parent
 RESULTS_CSV = ROOT / "results.csv"
-PAPER_FIELDS = {f.name for f in fields(Paper)}
 METRICS = ("p@5", "p@10", "ndcg@10", "mrr")
 Cands = list[dict]
 
 
 def to_paper(c: dict) -> Paper:
-    return Paper(**{k: v for k, v in c.items() if k in PAPER_FIELDS})
+    return Paper.from_dict(c)
 
 
 def by(key: Callable[[dict], float]) -> Callable[[Cands], Cands]:
