@@ -1,4 +1,5 @@
 """Research Copilot web app. Run: uvicorn app:app --reload  →  http://localhost:8000"""
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import fields
@@ -9,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from copilot import library, pwc, retrieval
+from copilot import library, pwc, retrieval, snapshots
 from copilot.errors import EmbeddingError, RankingError
 from copilot.llm import rank_with_timeout, summarize
 from copilot.models import Paper
@@ -17,6 +18,7 @@ from copilot.prefs import load_prefs
 from copilot.search import prioritize, search_all, shortlist
 
 ROOT = Path(__file__).parent
+log = logging.getLogger("uvicorn.error")
 PAPER_FIELDS = {f.name for f in fields(Paper)}
 
 @asynccontextmanager
@@ -100,6 +102,7 @@ def search(body: SearchIn) -> dict:
         retrieval.score_similarity(papers, body.query, prefs.get("interests", ""))
     except EmbeddingError as e:
         errors.append(e.to_dict())  # shortlist falls back to source order
+    pool = papers
     papers = shortlist(papers, prefs.get("rank_at_most", 24), priorities)
     liked, disliked = library.rated_titles()
     try:
@@ -107,6 +110,10 @@ def search(body: SearchIn) -> dict:
     except RankingError as e:
         errors.append(e.to_dict())
     papers = prioritize(papers, priorities)
+    try:
+        snapshots.save(body.query, prefs, field_keys, pool, papers, feedback_titles=liked[-15:] + disliked[-15:])
+    except OSError as e:
+        log.warning("couldn't save search snapshot: %s", e)
     return {
         "candidates": candidates,
         "with_code": sum(p.has_code for p in papers),

@@ -4,6 +4,7 @@ import numpy as np
 from .embed_cache import get_embeddings
 from .embeddings import embed_query, normalize, paper_text
 from .models import Paper
+from .preference_model import predict
 
 
 def rank_by_similarity(query_vec: np.ndarray, paper_vecs: np.ndarray) -> np.ndarray:
@@ -23,8 +24,12 @@ def paper_vectors(papers: list[Paper]) -> np.ndarray:
 
 
 def score_similarity(papers: list[Paper], query: str, interests: str) -> np.ndarray:
-    """Sets p.similarity on every paper; returns the paper vectors for reuse (e.g. the preference model)."""
+    """Sets p.similarity on every paper, and p.preference when a preference model is trained."""
     vecs = paper_vectors(papers)
     for p, s in zip(papers, rank_by_similarity(query_vector(query, interests), vecs)):
         p.similarity = float(s)
+    probs = predict(vecs)
+    if probs is not None:
+        for p, prob in zip(papers, probs):
+            p.preference = float(prob)
     return vecs

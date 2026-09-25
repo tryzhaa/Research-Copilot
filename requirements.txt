@@ -9,3 +9,4 @@ pypdf
 duckdb
 fastembed
 numpy
+scikit-learn
