@@ -21,11 +21,20 @@ def test_cosine_similarity_on_hand_computed_vectors() -> None:
     assert list(np.argsort(-sims, kind="stable")) == [1, 0, 3, 2]
 
 
-def test_shortlist_takes_most_similar_with_code_first() -> None:
+def test_shortlist_takes_most_similar_and_code_doesnt_buy_a_slot() -> None:
     ps = [paper("a", similarity=0.9), paper("b", similarity=0.2, code_url="x"),
           paper("c", similarity=0.5), paper("d", similarity=0.7)]
-    assert [p.title for p in shortlist(ps, 3, {"code_first": True})] == ["b", "a", "d"]
-    assert [p.title for p in shortlist(ps, 3, {"code_first": False})] == ["a", "d", "c"]
+    assert [p.title for p in shortlist(ps, 3, {"code_first": True})] == ["a", "d", "c"]
+
+
+def test_code_tier_never_lifts_an_off_topic_paper() -> None:
+    pr = {"code_first": True, "min_relevance": 5}
+    ps = [paper("off-topic with code", score=1.0, recruiter=9.0, code_url="x", similarity=0.7),
+          paper("on-topic no code", score=8.0, recruiter=5.0, similarity=0.9),
+          paper("on-topic with code", score=6.0, recruiter=5.0, code_url="y", similarity=0.8)]
+    assert [p.title for p in prioritize(ps, pr)] == ["on-topic with code", "on-topic no code", "off-topic with code"]
+    # min_relevance 0 restores the old behaviour: any paper with code first
+    assert prioritize(ps, pr | {"min_relevance": 0})[-1].title == "on-topic no code"
 
 
 def test_shortlist_without_similarity_keeps_source_order() -> None:

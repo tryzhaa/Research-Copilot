@@ -191,7 +191,7 @@ document.addEventListener("click", async e => {
 
 // ---------- search ----------
 
-const ERROR_LABELS = { timeout: "timed out", rate_limit: "rate limited", network: "offline", http_error: "server error", bad_response: "bad response" };
+const ERROR_LABELS = { rewrite_failed: "used your words as typed", timeout: "timed out", rate_limit: "rate limited", network: "offline", http_error: "server error", bad_response: "bad response" };
 
 const errorRow = e => `<li class="err-${esc(e.error_type)}"><b>${esc(e.source)}${e.field ? ` · ${esc(e.field)}` : ""}</b> `
   + `${esc(ERROR_LABELS[e.error_type] || e.error_type.replace("_", " "))} — ${esc(e.message)}</li>`;
@@ -215,9 +215,11 @@ $("#search-form").addEventListener("submit", async e => {
     const data = await api("/api/search", { query, fields, use_s2: $("#use-s2").checked, code_only: $("#code-only").checked });
     stop();
     const index = { building: " · code index still building, using hugging face links only", missing: " · code index not built" }[data.code_index] || "";
-    setStatus(data.papers.length
+    const searched = data.rewrite && data.rewrite.keywords.toLowerCase() !== query.toLowerCase()
+      ? `searched for “${data.rewrite.keywords}” · ` : "";
+    setStatus(searched + (data.papers.length
       ? `${data.candidates} candidates · ${data.with_code} with code · showing the top ${data.papers.length}${index}`
-      : "nothing matched. try broader words, another field, or turn off code only");
+      : "nothing matched. try broader words, another field, or turn off code only"));
     $("#errors").innerHTML = data.errors.map(errorRow).join("");
     $("#results").innerHTML = data.papers.map(p => row(p)).join("");
     $("#sample-list").innerHTML = (data.unranked_sample || []).map(p => row(p)).join("");

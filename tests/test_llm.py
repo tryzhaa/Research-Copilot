@@ -83,3 +83,35 @@ def test_summary_uses_abstract_when_there_is_no_pdf(httpx_mock: HTTPXMock) -> No
 
 def test_rank_of_nothing_calls_nothing() -> None:
     assert llm.rank([], "q", PREFS, [], []) == []
+
+
+def test_rewrite_parses_and_caches(httpx_mock: HTTPXMock) -> None:
+    llm._rewrites.clear()
+    httpx_mock.add_response(url=GROQ, json=_reply('{"keywords": "machine learning art", "intent": "ML for art"}'))
+    a = llm.rewrite_query("ml with art", PREFS, ["Art & Design"], timeout=5)
+    b = llm.rewrite_query("ML with art ", PREFS, ["Art & Design"], timeout=5)  # same query: no second call
+    assert a.keywords == b.keywords == "machine learning art"
+    assert len(httpx_mock.get_requests()) == 1
+    prompt = json.loads(httpx_mock.get_requests()[0].content)["messages"][1]["content"]
+    assert "Art & Design" in prompt and "topology" not in prompt  # interests stay out of the rewrite
+
+
+@pytest.mark.parametrize("keywords", ["", "one two three four five six seven eight nine"])
+def test_unusable_rewrite_is_an_error(httpx_mock: HTTPXMock, keywords: str) -> None:
+    from copilot.errors import RewriteError
+    llm._rewrites.clear()
+    httpx_mock.add_response(url=GROQ, json=_reply(json.dumps({"keywords": keywords, "intent": "x"})))
+    with pytest.raises(RewriteError, match="as typed"):
+        llm.rewrite_query("q", PREFS, [], timeout=5)
+
+
+def test_slow_rewrite_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    from copilot.errors import RewriteError
+    llm._rewrites.clear()
+    release = threading.Event()
+    monkeypatch.setattr(llm, "_structured", lambda *a: release.wait(5))
+    with pytest.raises(RewriteError, match="took over"):
+        llm.rewrite_query("q", PREFS, [], timeout=0.05)
+    release.set()

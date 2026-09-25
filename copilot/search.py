@@ -149,15 +149,27 @@ def similarity_range(papers: list[Paper]) -> tuple[float, float]:
     return (min(sims), max(sims)) if sims else (0.0, 1.0)
 
 
+def is_relevant(p: Paper, priorities: dict, sim_range: tuple[float, float]) -> bool:
+    """Relevant enough for the tiers to apply: LLM relevance >= min_relevance, or when the LLM
+    didn't score it, scaled similarity >= min_relevance (the top half of the search, by default)."""
+    rel = p.score if p.score is not None else signals(p, sim_range)["similarity"]
+    return rel is not None and rel >= priorities.get("min_relevance", 5)
+
+
 def prioritize(papers: list[Paper], priorities: dict) -> list[Paper]:
+    """Relevant papers first. Among them: code > datasets > CPU tiers, then the blended score.
+    Tiers never lift an off-topic paper above an on-topic one (set min_relevance: 0 to allow it)."""
     rng = similarity_range(papers)
-    return sorted(papers, key=lambda p: (priority_tier(p, priorities), blended_score(p, priorities, rng)), reverse=True)
+
+    def key(p: Paper) -> tuple[bool, int, float]:
+        relevant = is_relevant(p, priorities, rng)
+        return relevant, priority_tier(p, priorities) if relevant else 0, blended_score(p, priorities, rng)
+    return sorted(papers, key=key, reverse=True)
 
 
 def shortlist(papers: list[Paper], limit: int, priorities: dict) -> list[Paper]:
-    """Pick which candidates the LLM reads: the most similar to query + interests, papers with
-    code first when code_first is on. Without similarity scores, source order holds."""
-    def key(p: Paper) -> tuple[bool, float]:
-        has_code = priorities.get("code_first", True) and p.has_code
-        return has_code, p.similarity if p.similarity is not None else float("-inf")
-    return sorted(papers, key=key, reverse=True)[:limit]  # stable, so ties keep source order
+    """Pick which candidates the LLM reads: the most similar to query + interests. Having code
+    doesn't buy a slot; a relevant paper with code gets its tier boost after ranking.
+    Without similarity scores, source order holds."""
+    return sorted(papers, key=lambda p: p.similarity if p.similarity is not None else float("-inf"),
+                  reverse=True)[:limit]  # stable, so ties keep source order

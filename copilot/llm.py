@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from pydantic import BaseModel
 
-from .errors import CopilotError, RankingError, RankingTimeoutError
+from .errors import CopilotError, RankingError, RankingTimeoutError, RewriteError
 from .models import Paper
 
 if TYPE_CHECKING:
@@ -76,6 +76,19 @@ RANK_SYSTEM = (
     "inference with small pretrained models, or theory. compute_note: at most 8 words, e.g. "
     "\"small MLP on MNIST, CPU fine\" or \"trains 1B-param model on 64 GPUs\"."
 )
+REWRITE_SYSTEM = (
+    "You turn one person's short research-paper search into better inputs for two search systems. Return:\n"
+    "- keywords: 1 to 5 words for a keyword search engine that requires EVERY word to appear in a paper's "
+    "title or abstract, so fewer, more central words find more. Use only concepts that are in the search "
+    "itself: never add a topic, method or domain it doesn't mention. Expand abbreviations (ML -> machine "
+    "learning, GNN -> graph neural network, RL -> reinforcement learning). Turn questions and phrases into "
+    "the nouns a paper would use (\"why people believe fake news\" -> \"fake news belief\"). Drop filler "
+    "(with, papers, about, using, on, why, how). If the search is already a precise technical term or a "
+    "paper title, return it unchanged.\n"
+    "- intent: one plain sentence saying what the papers are about, for semantic matching. Describe the "
+    "topic only, not quality or preferences. Resolve ambiguity with the fields searched (e.g. with an art "
+    "field, \"art\" means visual art, design or music, not \"state of the art\")."
+)
 SUMMARY_SYSTEM = (
     "You write precise research summaries for one researcher. Follow their template exactly. "
     "Only state what the paper supports; when you have the full text, cite the section or page "
@@ -93,6 +106,11 @@ class Score(BaseModel):
     datasets: list[str]
     needs_gpu: bool
     compute_note: str
+
+
+class QueryRewrite(BaseModel):
+    keywords: str
+    intent: str
 
 
 class Ranking(BaseModel):
@@ -203,6 +221,50 @@ def rank_with_timeout(papers: list[Paper], query: str, prefs: dict, liked: list[
         raise
     except Exception as e:
         raise RankingError(f"ranking failed, so these are ranked by similarity: {e}") from e
+
+
+_rewrites: dict[tuple, QueryRewrite] = {}
+
+
+def rewrite_query(query: str, prefs: dict, field_labels: list[str], timeout: float) -> QueryRewrite:
+    """Keywords for the sources and an intent sentence for embeddings/ranking. Cached per query + fields."""
+    cache_key = (query.strip().lower(), tuple(sorted(field_labels)), prefs.get("provider"), prefs["model"])
+    if cache_key in _rewrites:
+        return _rewrites[cache_key]
+    # No interests here on purpose: they pulled extra topics into the keywords, and similarity
+    # already blends them in separately (retrieval.query_vector).
+    prompt = f"Search: {query}\nFields searched: {', '.join(field_labels)}"
+    fut = _rank_pool.submit(_structured, prefs, REWRITE_SYSTEM, prompt, QueryRewrite, 800)
+    try:
+        out = fut.result(timeout=timeout)
+    except FuturesTimeout:
+        raise RewriteError(f"rewriting took over {timeout:.0f}s, so this searched for your words as typed") from None
+    except Exception as e:
+        raise RewriteError(f"couldn't rewrite the query ({e}), so this searched for your words as typed") from e
+    words = out.keywords.split()
+    if not 1 <= len(words) <= 8:
+        raise RewriteError(f"rewrite gave unusable keywords {out.keywords!r}, so this searched for your words as typed")
+    _rewrites[cache_key] = out
+    return out
+
+
+def _structured(prefs: dict, system: str, user: str, schema: type[QueryRewrite], max_tokens: int) -> QueryRewrite:
+    """One JSON-shaped answer from whichever provider is configured."""
+    provider = prefs.get("provider", "ollama")
+    if provider == "anthropic":
+        response = _client().beta.messages.parse(
+            model=prefs["model"], max_tokens=max_tokens * 4, output_config={"effort": "low"}, system=system,
+            messages=[{"role": "user", "content": user}], output_format=schema, **FALLBACK,
+        )
+        if response.parsed_output is None:
+            raise RuntimeError("no result")
+        return response.parsed_output
+    if provider == "ollama":
+        raw = _ollama_chat(prefs | {"effort": "low"}, system, user, max_tokens, schema=schema.model_json_schema())
+    else:
+        system = f"{system}\n\nReply with only a JSON object matching this JSON schema:\n{json.dumps(schema.model_json_schema())}"
+        raw = _openai_chat(prefs, system, user, max_tokens * 3, json_mode=True)  # reasoning models think first
+    return schema.model_validate_json(raw[raw.find("{"):raw.rfind("}") + 1])
 
 
 def summarize(paper: Paper, prefs: dict, template: str) -> tuple[str, bool]:

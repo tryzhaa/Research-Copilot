@@ -12,8 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from copilot import library, pwc, retrieval, snapshots
-from copilot.errors import EmbeddingError, RankingError
-from copilot.llm import rank_with_timeout, summarize
+from copilot.errors import EmbeddingError, RankingError, RewriteError
+from copilot.llm import QueryRewrite, rank_with_timeout, rewrite_query, summarize
 from copilot.models import Paper
 from copilot.prefs import load_prefs
 from copilot.search import prioritize, search_all, shortlist
@@ -96,29 +96,46 @@ def search(body: SearchIn) -> dict:
     if not body.query.strip() or not field_keys:
         raise HTTPException(400, "Enter a query and pick at least one field.")
     priorities = prefs.get("priorities", {}) | ({"require_code": True} if body.code_only else {})
-    papers, source_errors = search_all(body.query.strip(), prefs | {"priorities": priorities}, field_keys, body.use_s2)
-    errors = [e.to_dict() for e in source_errors]
+    query = body.query.strip()
+    errors: list[dict] = []
+
+    # Rewrite: keywords for the sources, an intent sentence for similarity and the ranker.
+    rewrite: QueryRewrite | None = None
+    if prefs.get("rewrite_query", True):
+        try:
+            rewrite = rewrite_query(query, prefs, [prefs["fields"][k]["label"] for k in field_keys],
+                                    prefs.get("rewrite_timeout_seconds", 15))
+        except RewriteError as e:
+            errors.append(e.to_dict())
+    keywords = rewrite.keywords if rewrite else query
+    meaning = rewrite.intent if rewrite else query
+    ranker_query = f"{query} (meaning: {rewrite.intent})" if rewrite else query
+
+    papers, source_errors = search_all(keywords, prefs | {"priorities": priorities}, field_keys, body.use_s2)
+    errors += [e.to_dict() for e in source_errors]
     candidates = len(papers)
     try:
-        retrieval.score_similarity(papers, body.query, prefs.get("interests", ""))
+        retrieval.score_similarity(papers, meaning, prefs.get("interests", ""))
     except EmbeddingError as e:
         errors.append(e.to_dict())  # shortlist falls back to source order
     pool = papers
     papers = shortlist(papers, prefs.get("rank_at_most", 24), priorities)
     liked, disliked = library.rated_titles()
     try:
-        papers = rank_with_timeout(papers, body.query, prefs, liked, disliked, prefs.get("rank_timeout_seconds", 120))
+        papers = rank_with_timeout(papers, ranker_query, prefs, liked, disliked, prefs.get("rank_timeout_seconds", 120))
     except RankingError as e:
         errors.append(e.to_dict())
     papers = prioritize(papers, priorities)
     try:
-        snapshots.save(body.query, prefs, field_keys, pool, papers, feedback_titles=liked[-15:] + disliked[-15:])
+        snapshots.save(query, prefs, field_keys, pool, papers, feedback_titles=liked[-15:] + disliked[-15:],
+                       rewrite=rewrite.model_dump() if rewrite else None)
     except OSError as e:
         log.warning("couldn't save search snapshot: %s", e)
     shown = papers[:prefs["show_top"]]
     shown_keys = {p.key for p in shown}
     rest = [p for p in pool if p.key not in shown_keys]
     return {
+        "rewrite": rewrite.model_dump() if rewrite else None,
         "candidates": candidates,
         "with_code": sum(p.has_code for p in papers),
         "code_index": pwc.status(),

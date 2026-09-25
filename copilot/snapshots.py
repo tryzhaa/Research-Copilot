@@ -20,13 +20,14 @@ KEEP = ("title", "abstract", "year", "citations", "source", "code_url", "similar
 
 
 def save(query: str, prefs: dict, fields: list[str], pool: list[Paper], ranked: list[Paper],
-         feedback_titles: list[str], directory: Path = DIR) -> Path:
+         feedback_titles: list[str], rewrite: dict | None = None, directory: Path = DIR) -> Path:
     """pool: every candidate after filtering, in source order. ranked: the shortlist the LLM scored."""
     scored = {p.key: p for p in ranked}
     record = {
         "id": uuid.uuid4().hex[:12],
         "time": time.time(),
         "query": query,
+        "rewrite": rewrite,  # {keywords, intent} the sources and similarity actually used, or None
         "interests": prefs.get("interests", ""),
         "fields": fields,
         "provider": prefs.get("provider", "ollama"),

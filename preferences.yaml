@@ -19,6 +19,11 @@ effort: medium                # low | medium | high. On ollama, high turns on th
 context_tokens: 16000         # how much paper text the model reads when summarizing. On ollama, more needs more RAM
                               # (use 8192 on an 8 GB Mac); on free hosted tiers, too much hits per-minute token limits.
 
+# Before searching, the model rewrites your query: 1-5 keywords for the sources (abbreviations expanded,
+# filler dropped) and a sentence of intent for similarity and ranking. Falls back to your words on failure.
+rewrite_query: true
+rewrite_timeout_seconds: 15   # ~1 s on Groq; a local ollama model may need 30+
+
 # Which fields to search, and where. Toggle them on/off in the UI too.
 # openalex_field searches a whole OpenAlex field; openalex_subfields narrows to specific subfields
 # instead (they may come from different fields). IDs: https://api.openalex.org/fields/<id>
@@ -73,6 +78,7 @@ interests: |
 # What to put first. Order of importance: has code > datasets > CPU-friendly,
 # then a blend of relevance and "would impress a recruiter if I built it".
 priorities:
+  min_relevance: 5            # 0-10. The tiers below only reorder papers at least this relevant; the rest sort after
   code_first: true            # papers with a public repo (Papers with Code / Hugging Face) rank above the rest
   require_code: false         # true = hide papers without code entirely
   min_datasets: 2             # prefer papers evaluated on at least this many datasets

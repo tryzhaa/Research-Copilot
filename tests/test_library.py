@@ -25,9 +25,11 @@ def test_rate_save_and_remove() -> None:
 def test_snapshot_round_trip_records_what_each_stage_saw(tmp_path: Path) -> None:
     pool = [paper("A", doi="10.1/a", similarity=0.8), paper("B", doi="10.1/b", similarity=0.4)]
     ranked = [paper("A", doi="10.1/a", similarity=0.8, score=7.0)]
-    snapshots.save("sheaf diffusion", {"interests": "i", "model": "m"}, ["ml"], pool, ranked, ["Liked title"], tmp_path)
+    snapshots.save("sheaf diffusion", {"interests": "i", "model": "m"}, ["ml"], pool, ranked, ["Liked title"],
+                   rewrite={"keywords": "k", "intent": "i"}, directory=tmp_path)
     [s] = snapshots.load_all(tmp_path)
     assert s["query"] == "sheaf diffusion" and s["feedback_titles"] == ["Liked title"]
+    assert s["rewrite"] == {"keywords": "k", "intent": "i"}
     a, b = s["candidates"]
     assert a["shortlisted"] and a["score"] == 7.0
     assert not b["shortlisted"] and b["score"] is None and b["similarity"] == 0.4

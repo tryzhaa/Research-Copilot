@@ -37,6 +37,12 @@ class RankingTimeoutError(RankingError):
     error_type = "timeout"
 
 
+class RewriteError(CopilotError):
+    """Query rewriting failed or was slow. The search goes ahead with the query as typed."""
+    source = "rewriter"
+    error_type = "rewrite_failed"
+
+
 class EmbeddingError(CopilotError):
     source = "embeddings"
     error_type = "embedding_failed"
