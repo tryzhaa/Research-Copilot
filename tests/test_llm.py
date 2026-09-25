@@ -115,3 +115,13 @@ def test_slow_rewrite_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(RewriteError, match="took over"):
         llm.rewrite_query("q", PREFS, [], timeout=0.05)
     release.set()
+
+
+def test_ranking_request_fits_the_token_limit(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=GROQ, json=_reply(_scores(16)))
+    ps = [paper(f"title {i}", abstract="word " * 400) for i in range(16)]
+    llm.rank(ps, "q", PREFS | {"request_token_limit": 7000, "reasoning_effort": "low"}, ["l"] * 15, ["d"] * 15)
+    body = json.loads(httpx_mock.get_requests()[0].content)
+    sent = sum(len(m["content"]) for m in body["messages"]) / 3.5 + body["max_tokens"]
+    assert sent <= 7000
+    assert body["reasoning_effort"] == "low"

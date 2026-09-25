@@ -91,7 +91,7 @@ memorize them. It enters the blend at `weights.preference: 0` until the evaluati
 
 ## Engineering
 
-- `mypy` with `disallow_untyped_defs`, 72 `pytest` tests,
+- `mypy` with `disallow_untyped_defs`, 73 `pytest` tests,
   mocked HTTP for every source and the LLM client.
 - Typed errors (`SourceFetchError`, `RankingTimeoutError`, ...) reach the UI per source:
   which source failed and why (timeout, rate limit, network).

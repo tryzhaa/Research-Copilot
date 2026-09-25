@@ -79,7 +79,9 @@ class SimilarIn(BaseModel):
 
 
 class MapIn(BaseModel):
-    keys: list[str]  # papers on screen; the library is always included
+    keys: list[str]               # papers on screen
+    include_library: bool = True  # the map tab adds your library; the graph beside results doesn't
+    limit: int = 250
 
 
 @app.get("/")
@@ -187,7 +189,8 @@ def paper_map(body: MapIn) -> dict:
     entries = library.entries()
     ratings = {e["key"]: e["rating"] for e in entries}
     try:
-        data = graph.neighbourhood(body.keys + [e["key"] for e in entries])
+        focus = body.keys + ([e["key"] for e in entries] if body.include_library else [])
+        data = graph.neighbourhood(focus, limit=min(body.limit, 400))
     except EmbeddingError as e:
         raise HTTPException(502, str(e))
     for n in data["nodes"]:

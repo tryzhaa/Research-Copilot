@@ -35,7 +35,16 @@
       </form>
       <p id="status" class="status" aria-live="polite"></p>
       <ul id="errors" class="errors"></ul>
-      <ol id="results" class="papers"></ol>
+      <div class="results-area">
+        <aside id="results-graph" class="results-graph" hidden>
+          <div class="rg-sticky">
+            <p id="rg-note" class="map-note"></p>
+            <div id="rg" class="map"></div>
+            <div id="rg-card" class="map-card" hidden></div>
+          </div>
+        </aside>
+        <ol id="results" class="papers"></ol>
+      </div>
       <details id="sample" class="sample" hidden>
         <summary>rate 5 random candidates the ranker didn't show <span>· keeps the eval honest</span></summary>
         <ol id="sample-list" class="papers"></ol>

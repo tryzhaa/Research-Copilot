@@ -152,23 +152,14 @@ async function similarRow(li, p) {
   }
 }
 
-// ---------- map: the similarity graph around what's on screen and in your library ----------
+// ---------- similarity graph drawing (map tab and the graph beside search results) ----------
 
-async function drawMap() {
-  const note = $("#map-note"), box = $("#map");
-  if (!window.d3) return (note.textContent = "couldn't load the graph library (d3). check your connection.");
-  note.textContent = "building the map…";
-  const keys = $$("#results .paper, #sample-list .paper").map(li => li.dataset.key);
-  const data = await api("/api/map", { keys });
-  if (!data.nodes.length) {
-    box.innerHTML = "";
-    return (note.textContent = "nothing to map yet. run a search or rate a few papers.");
-  }
-  note.textContent = `${data.nodes.length} of ${data.total_papers} papers you've seen · lines join similar papers · `
-    + `bright = liked, ring = disliked, light = on screen · drag, ⌘/ctrl + scroll to zoom, click a dot`;
-
+// Draws nodes + links with d3-force into `box`. opts: height, fill(d), big(d), onSelect(d).
+// Returns { highlight(key | null) } so rows can light up their node.
+function drawGraph(box, data, opts) {
+  box._graph?.stop();  // an earlier layout in this box stops ticking
   const css = getComputedStyle(document.documentElement), col = v => css.getPropertyValue(v).trim();
-  const w = box.clientWidth, h = Math.max(420, Math.min(680, innerHeight - 240));
+  const w = box.clientWidth, h = opts.height;
   box.innerHTML = "";
   const svg = d3.select(box).append("svg").attr("viewBox", [0, 0, w, h]).attr("height", h);
   const g = svg.append("g");
@@ -180,13 +171,12 @@ async function drawMap() {
   const nodes = data.nodes.map(d => ({ ...d })), links = data.links.map(d => ({ ...d }));
   const link = g.append("g").attr("stroke", col("--faint")).selectAll("line").data(links).join("line")
     .attr("stroke-opacity", d => 0.15 + (d.sim - 0.6) * 1.5).attr("stroke-width", 0.8);
-  const fill = d => d.rating > 0 ? col("--fg") : d.rating < 0 ? "none" : d.on_screen ? col("--soft") : col("--faint");
   const node = g.append("g").selectAll("circle").data(nodes).join("circle")
-    .attr("r", d => d.rating || d.on_screen ? 5.5 : 3.5)
-    .attr("fill", fill)
+    .attr("r", d => opts.big(d) ? 5.5 : 3.5)
+    .attr("fill", d => opts.fill(d, col))
     .attr("stroke", d => d.rating < 0 ? col("--muted") : "none").attr("stroke-width", 1.2)
     .style("cursor", "pointer")
-    .on("click", (e, d) => selectNode(d));
+    .on("click", (e, d) => { highlight(d.key); opts.onSelect(d); });
   node.append("title").text(d => `${d.title}${d.year ? ` (${d.year})` : ""}`);
 
   const sim = d3.forceSimulation(nodes)
@@ -207,28 +197,93 @@ async function drawMap() {
       svg.transition().duration(500).call(zoom.transform,
         d3.zoomIdentity.translate(w / 2, h / 2).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2));
     });
+  box._graph = sim;
   node.call(d3.drag()
     .on("start", (e, d) => { if (!e.active) sim.alphaTarget(0.2).restart(); d.fx = d.x; d.fy = d.y; })
     .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
     .on("end", (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = d.fy = null; }));
 
-  async function selectNode(d) {
-    const linked = new Set([d.key]);
-    links.forEach(l => { if (l.source.key === d.key) linked.add(l.target.key); if (l.target.key === d.key) linked.add(l.source.key); });
-    node.attr("opacity", n => linked.has(n.key) ? 1 : 0.2);
-    link.attr("stroke", l => l.source.key === d.key || l.target.key === d.key ? col("--soft") : col("--faint"));
-    const card = $("#map-card");
-    card.hidden = false;
-    card.innerHTML = `<h2><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.title)}</a></h2>
-      <p class="note">${d.year ? esc(d.year) + " · " : ""}finding similar papers…</p>`;
-    try {
-      const s = await api("/api/similar", { paper: { title: d.title }, key: d.key });
-      card.innerHTML = `<h2><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.title)}</a></h2>${similarList(s.similar)}`;
-    } catch (err) {
-      $(".note", card).textContent = err.message;
-    }
+  function highlight(key) {
+    const touches = l => l.source.key === key || l.target.key === key;
+    const linked = new Set([key]);
+    links.forEach(l => { if (touches(l)) { linked.add(l.source.key); linked.add(l.target.key); } });
+    node.attr("opacity", n => key == null || linked.has(n.key) ? 1 : 0.2)
+      .attr("r", n => n.key === key ? 8 : opts.big(n) ? 5.5 : 3.5);
+    link.attr("stroke", l => key != null && touches(l) ? col("--soft") : col("--faint"));
+  }
+  return { highlight };
+}
+
+async function showCard(card, d) {
+  const head = `<h2><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.title)}</a></h2>`;
+  card.hidden = false;
+  card.innerHTML = `${head}<p class="note">${d.year ? esc(d.year) + " · " : ""}finding similar papers…</p>`;
+  try {
+    const s = await api("/api/similar", { paper: { title: d.title }, key: d.key });
+    card.innerHTML = head + similarList(s.similar);
+  } catch (err) {
+    $(".note", card).textContent = err.message;
   }
 }
+
+// The map tab: everything around what's on screen and your library.
+async function drawMap() {
+  const note = $("#map-note"), box = $("#map");
+  if (!window.d3) return (note.textContent = "couldn't load the graph library (d3). check your connection.");
+  note.textContent = "building the map…";
+  const keys = $$("#results .paper, #sample-list .paper").map(li => li.dataset.key);
+  const data = await api("/api/map", { keys });
+  if (!data.nodes.length) {
+    box.innerHTML = "";
+    return (note.textContent = "nothing to map yet. run a search or rate a few papers.");
+  }
+  note.textContent = `${data.nodes.length} of ${data.total_papers} papers you've seen · lines join similar papers · `
+    + `bright = liked, ring = disliked, light = on screen · drag, ⌘/ctrl + scroll to zoom, click a dot`;
+  drawGraph(box, data, {
+    height: Math.max(420, Math.min(680, innerHeight - 240)),
+    big: d => d.rating || d.on_screen,
+    fill: (d, col) => d.rating > 0 ? col("--fg") : d.rating < 0 ? "none" : d.on_screen ? col("--soft") : col("--faint"),
+    onSelect: d => showCard($("#map-card"), d),
+  });
+}
+
+// The graph beside search results: the results and their nearest neighbours from earlier searches.
+let resultsGraph = null;
+
+async function drawResultsGraph(keys) {
+  const wrap = $("#results-graph"), note = $("#rg-note");
+  resultsGraph = null;
+  $("#rg-card").hidden = true;
+  if (!window.d3 || !keys.length) return (wrap.hidden = true);
+  const data = await api("/api/map", { keys, include_library: false, limit: keys.length + 35 });
+  if (data.nodes.length < 2) return (wrap.hidden = true);
+  wrap.hidden = false;
+  const related = data.nodes.length - data.nodes.filter(n => n.on_screen).length;
+  note.textContent = `your results (bright) and ${related} related papers from earlier searches · `
+    + `hover a result to find it · click a dot`;
+  // Wide screens: a column beside the results that stays in view (see .results-graph in the CSS).
+  const beside = matchMedia("(min-width: 1440px)").matches;
+  resultsGraph = drawGraph($("#rg"), data, {
+    height: beside ? Math.max(300, Math.min(innerHeight - 320, 460)) : 300,
+    big: d => d.on_screen,
+    fill: (d, col) => d.on_screen ? col("--fg") : d.rating < 0 ? "none" : col("--faint"),
+    onSelect: d => {
+      const li = $(`#results .paper[data-key="${CSS.escape(d.key)}"]`);
+      if (!li) return showCard($("#rg-card"), d);
+      $("#rg-card").hidden = true;
+      li.scrollIntoView({ behavior: "smooth", block: "center" });
+      li.classList.remove("flash");
+      void li.offsetWidth;  // restart the animation
+      li.classList.add("flash");
+    },
+  });
+}
+
+$("#results").addEventListener("mouseover", e => {
+  const li = e.target.closest(".paper");
+  if (li && resultsGraph) resultsGraph.highlight(li.dataset.key);
+});
+$("#results").addEventListener("mouseleave", () => resultsGraph?.highlight(null));
 
 function showSummary(li, d) {
   const box = $(".summary", li);
@@ -328,6 +383,7 @@ $("#search-form").addEventListener("submit", async e => {
   $("#results").innerHTML = "";
   $("#errors").innerHTML = "";
   $("#sample").hidden = true;
+  $("#results-graph").hidden = true;
   const stop = ticker(s => setStatus(`searching, then ${modelName} reads the shortlist (a few minutes on a local model) · ${s}s`, true));
   try {
     const data = await api("/api/search", { query, fields, use_s2: $("#use-s2").checked, code_only: $("#code-only").checked });
@@ -340,6 +396,7 @@ $("#search-form").addEventListener("submit", async e => {
       : "nothing matched. try broader words, another field, or turn off code only"));
     $("#errors").innerHTML = data.errors.map(errorRow).join("");
     $("#results").innerHTML = data.papers.map(p => row(p)).join("");
+    drawResultsGraph(data.papers.map(p => p.key)).catch(() => { $("#results-graph").hidden = true; });
     $("#sample-list").innerHTML = (data.unranked_sample || []).map(p => row(p)).join("");
     $("#sample").hidden = !(data.unranked_sample || []).length;
   } catch (err) {

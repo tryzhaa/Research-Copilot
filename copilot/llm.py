@@ -222,7 +222,7 @@ def rewrite_query(query: str, prefs: dict, field_labels: list[str], timeout: flo
     # No interests here on purpose: they pulled extra topics into the keywords, and similarity
     # already blends them in separately (retrieval.query_vector).
     prompt = f"Search: {query}\nFields searched: {', '.join(field_labels)}"
-    fut = _rank_pool.submit(_structured, prefs, REWRITE_SYSTEM, prompt, QueryRewrite, 800)
+    fut = _rank_pool.submit(_structured, prefs, REWRITE_SYSTEM, prompt, QueryRewrite, 700)
     try:
         out = fut.result(timeout=timeout)
     except FuturesTimeout:
@@ -251,7 +251,7 @@ def _structured(prefs: dict, system: str, user: str, schema: type[QueryRewrite],
         raw = _ollama_chat(prefs | {"effort": "low"}, system, user, max_tokens, schema=schema.model_json_schema())
     else:
         system = f"{system}\n\nReply with only a JSON object matching this JSON schema:\n{json.dumps(schema.model_json_schema())}"
-        raw = _openai_chat(prefs, system, user, max_tokens * 3, json_mode=True)  # reasoning models think first
+        raw = _openai_chat(prefs, system, user, max_tokens, json_mode=True)
     return schema.model_validate_json(raw[raw.find("{"):raw.rfind("}") + 1])
 
 
@@ -371,6 +371,8 @@ def _openai_chat(prefs: dict, system: str, user: str, max_tokens: int, json_mode
     }
     if json_mode:
         body["response_format"] = {"type": "json_object"}
+    if effort := prefs.get("reasoning_effort"):
+        body["reasoning_effort"] = effort  # reasoning models (gpt-oss, qwen3): how much to think first
     for attempt in range(2):
         try:
             r = httpx.post(f"{base_url.rstrip('/')}/chat/completions", json=body,
@@ -400,13 +402,25 @@ def _openai_chat(prefs: dict, system: str, user: str, max_tokens: int, json_mode
     return content
 
 
+def _approx_tokens(text: str) -> int:
+    return int(len(text) / 3.5)  # English runs ~4 chars/token; JSON and names run shorter, so err high
+
+
 def _rank_openai(papers: list[Paper], query: str, prefs: dict, liked: list[str], disliked: list[str]) -> None:
     system = (f"{RANK_SYSTEM}\n\nReply with only a JSON object matching this JSON schema:\n"
               f"{json.dumps(Ranking.model_json_schema())}")
-    prompt = _rank_prompt(papers, query, prefs, liked, disliked, abstract_chars=1200)
+    max_tokens = 150 * len(papers) + 1000
+    abstract_chars = 1200
+    # Free tiers cap tokens per request/minute, counting the reserved answer (max_tokens) too.
+    # Shrink the abstracts until the request fits instead of having it rejected.
+    if limit := prefs.get("request_token_limit"):
+        base = _approx_tokens(system + _rank_prompt(papers, query, prefs, liked, disliked, abstract_chars=0))
+        room = limit - max_tokens - base
+        abstract_chars = max(200, min(1200, int(room * 3.5 / len(papers))))
+    prompt = _rank_prompt(papers, query, prefs, liked, disliked, abstract_chars=abstract_chars)
     t0 = time.monotonic()
-    raw = _openai_chat(prefs, system, prompt, max_tokens=300 * len(papers) + 2000, json_mode=True)
-    log.info("ranked %d papers in %.1fs", len(papers), time.monotonic() - t0)
+    raw = _openai_chat(prefs, system, prompt, max_tokens=max_tokens, json_mode=True)
+    log.info("ranked %d papers in %.1fs (abstracts cut to %d chars)", len(papers), time.monotonic() - t0, abstract_chars)
     _apply_scores(papers, Ranking.model_validate_json(raw[raw.find("{"):raw.rfind("}") + 1]))
 
 

@@ -16,6 +16,9 @@ model: openai/gpt-oss-120b
 # provider: ollama
 # model: qwen3:4b
 effort: medium                # low | medium | high. On ollama, high turns on the model's thinking: better, much slower.
+reasoning_effort: low         # hosted reasoning models (gpt-oss, qwen3): scoring papers doesn't need long thinking
+request_token_limit: 7000     # hosted free tiers cap tokens per request/minute (Groq free: 8000, counting the
+                              # reserved answer); ranking trims abstracts to fit. Remove on paid tiers
 context_tokens: 16000         # how much paper text the model reads when summarizing. On ollama, more needs more RAM
                               # (use 8192 on an 8 GB Mac); on free hosted tiers, too much hits per-minute token limits.
 
