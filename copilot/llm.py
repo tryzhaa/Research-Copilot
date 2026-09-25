@@ -260,10 +260,18 @@ def summarize(paper: Paper, prefs: dict, template: str) -> tuple[str, bool]:
     pdf = _fetch_pdf(paper.pdf_url) if paper.pdf_url else None
     provider = prefs.get("provider", "ollama")
     if provider == "anthropic":
-        return _summarize_claude(paper, prefs, template, pdf)
-    if provider != "ollama":
-        return _summarize_openai(paper, prefs, template, pdf)
-    return _summarize_ollama(paper, prefs, template, pdf)
+        text, full = _summarize_claude(paper, prefs, template, pdf)
+    elif provider != "ollama":
+        text, full = _summarize_openai(paper, prefs, template, pdf)
+    else:
+        text, full = _summarize_ollama(paper, prefs, template, pdf)
+    return clean_headings(text), full
+
+
+def clean_headings(markdown: str) -> str:
+    """Some models bold the template's headings ("**## TL;DR**"), which renders as literal
+    "## TL;DR" text. Unwrap them into real headings."""
+    return re.sub(r"^\s*\*\*\s*(#{1,6}\s+.+?)\s*\*\*\s*$", r"\1", markdown, flags=re.M)
 
 
 # ---------- ollama (local, open-weight) ----------
@@ -329,10 +337,12 @@ def _pdf_text(pdf: bytes, max_chars: int) -> str:
     return "".join(out).strip()
 
 
-def _text_summary_prompt(paper: Paper, prefs: dict, template: str, pdf: bytes | None) -> tuple[str, bool]:
-    """Summary prompt with the PDF as extracted text, for models that can't read PDFs directly."""
+def _text_summary_prompt(paper: Paper, prefs: dict, template: str, pdf: bytes | None,
+                         max_chars: int | None = None) -> tuple[str, bool]:
+    """Summary prompt with the PDF as extracted text, for models that can't read PDFs directly.
+    `max_chars` caps the paper text; by default it's sized from context_tokens."""
     # ~4 chars per token; leave room for the template, instructions and the answer.
-    budget = max(4000, (prefs.get("context_tokens", 8192) - 4000) * 4)
+    budget = max_chars if max_chars is not None else max(4000, (prefs.get("context_tokens", 8192) - 4000) * 4)
     text = ""
     if pdf:
         try:
@@ -425,8 +435,16 @@ def _rank_openai(papers: list[Paper], query: str, prefs: dict, liked: list[str],
 
 
 def _summarize_openai(paper: Paper, prefs: dict, template: str, pdf: bytes | None) -> tuple[str, bool]:
-    prompt, has_full_text = _text_summary_prompt(paper, prefs, template, pdf)
-    return _openai_chat(prefs, SUMMARY_SYSTEM, prompt, max_tokens=8000), has_full_text
+    max_tokens, max_chars = 8000, None
+    # Free tiers cap tokens per request, counting the reserved answer. Like ranking, fit the
+    # request instead of having it rejected: a shorter answer budget, then as much of the
+    # paper as the rest allows (on Groq's free tier, the first few pages).
+    if limit := prefs.get("request_token_limit"):
+        max_tokens = min(max_tokens, max(1500, limit // 3))
+        overhead = _approx_tokens(SUMMARY_SYSTEM + _summary_request(paper, prefs, template, True)) + 100
+        max_chars = max(0, int((limit - max_tokens - overhead) * 3.5))
+    prompt, has_full_text = _text_summary_prompt(paper, prefs, template, pdf, max_chars)
+    return _openai_chat(prefs, SUMMARY_SYSTEM, prompt, max_tokens=max_tokens), has_full_text
 
 
 # ---------- anthropic (Claude API) ----------

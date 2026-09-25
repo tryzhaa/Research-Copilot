@@ -125,3 +125,22 @@ def test_ranking_request_fits_the_token_limit(httpx_mock: HTTPXMock) -> None:
     sent = sum(len(m["content"]) for m in body["messages"]) / 3.5 + body["max_tokens"]
     assert sent <= 7000
     assert body["reasoning_effort"] == "low"
+
+
+def test_summary_request_fits_the_token_limit(httpx_mock: HTTPXMock, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A long paper on a free tier: the text is trimmed to fit instead of the request being rejected.
+    httpx_mock.add_response(url=GROQ, json=_reply("## TL;DR\nok"))
+    monkeypatch.setattr(llm, "_fetch_pdf", lambda url: b"%PDF")
+    monkeypatch.setattr(llm, "_pdf_text", lambda pdf, max_chars: ("word " * 50_000)[:max_chars])
+    prefs = PREFS | {"context_tokens": 16000, "request_token_limit": 7000}
+    _, full = llm.summarize(paper("t", pdf_url="https://x/p.pdf"), prefs, "## TL;DR\n## Build it")
+    body = json.loads(httpx_mock.get_requests()[0].content)
+    sent = sum(len(m["content"]) for m in body["messages"]) / 3.5 + body["max_tokens"]
+    assert full is True
+    assert sent <= 7000
+
+
+def test_bolded_headings_are_unwrapped(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=GROQ, json=_reply("**## TL;DR**  \nIt uses **bold** words.\n** ## Build it **"))
+    text, _ = llm.summarize(paper("t", abstract="a"), PREFS, "## TL;DR")
+    assert text.splitlines() == ["## TL;DR", "It uses **bold** words.", "## Build it"]
