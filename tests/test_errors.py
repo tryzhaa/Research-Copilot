@@ -46,3 +46,34 @@ def test_a_failing_source_is_reported_and_the_rest_still_return(monkeypatch: pyt
 
     assert [p.title for p in papers] == ["Topology of GANs"]
     assert [(e.source, e.error_type) for e in errors] == [("arXiv", "network")]
+
+
+def test_slow_ranker_times_out_and_leaves_papers_untouched(monkeypatch: pytest.MonkeyPatch) -> None:
+    import time
+
+    from copilot import llm
+
+    def slow_rank(papers: list, *_: object) -> list:
+        time.sleep(0.5)
+        for p in papers:
+            p.score = 10.0
+        return papers
+
+    monkeypatch.setattr(llm, "rank", slow_rank)
+    ps = [paper("a", similarity=0.3)]
+    with pytest.raises(RankingTimeoutError):
+        llm.rank_with_timeout(ps, "q", {"model": "m"}, [], [], timeout=0.05)
+    time.sleep(0.6)  # let the abandoned call finish
+    assert ps[0].score is None  # it worked on copies
+
+
+def test_ranker_crash_becomes_ranking_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from copilot import llm
+    from copilot.errors import RankingError
+
+    def broken(*_: object) -> list:
+        raise ValueError("bad json")
+
+    monkeypatch.setattr(llm, "rank", broken)
+    with pytest.raises(RankingError, match="bad json"):
+        llm.rank_with_timeout([paper("a")], "q", {"model": "m"}, [], [], timeout=5)

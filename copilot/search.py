@@ -119,18 +119,44 @@ def priority_tier(p: Paper, priorities: dict) -> int:
     return tier
 
 
-def blended_score(p: Paper, priorities: dict) -> float:
-    w = priorities.get("weights", {"relevance": 0.5, "recruiter": 0.5})
-    rel, rec = p.score or 0.0, p.recruiter or 0.0
-    return float((w.get("relevance", 0.5) * rel + w.get("recruiter", 0.5) * rec) / max(1e-9, sum(w.values())))
+DEFAULT_WEIGHTS = {"relevance": 0.35, "recruiter": 0.35, "similarity": 0.3, "preference": 0.0}
+
+
+def signals(p: Paper, sim_range: tuple[float, float]) -> dict[str, float | None]:
+    """Every ranking signal on a 0-10 scale, or None when that stage didn't run for this paper.
+
+    Similarity is min-max scaled within the search: raw cosine values from one embedding
+    model bunch into a narrow band, and only their order within a search matters here.
+    """
+    lo, hi = sim_range
+    sim = None if p.similarity is None else 10 * (p.similarity - lo) / max(1e-9, hi - lo)
+    pref = None if p.preference is None else 10 * p.preference
+    return {"relevance": p.score, "recruiter": p.recruiter, "similarity": sim, "preference": pref}
+
+
+def blended_score(p: Paper, priorities: dict, sim_range: tuple[float, float] = (0.0, 1.0)) -> float:
+    """Weighted mean of the signals this paper has. Missing ones drop out and the rest are
+    renormalized, so when the LLM ranker fails or times out the order falls back to similarity."""
+    w = DEFAULT_WEIGHTS | priorities.get("weights", {})
+    present = {k: v for k, v in signals(p, sim_range).items() if v is not None and w.get(k, 0) > 0}
+    total = sum(w[k] for k in present)
+    return sum(w[k] * v for k, v in present.items()) / total if total else 0.0
+
+
+def similarity_range(papers: list[Paper]) -> tuple[float, float]:
+    sims = [p.similarity for p in papers if p.similarity is not None]
+    return (min(sims), max(sims)) if sims else (0.0, 1.0)
 
 
 def prioritize(papers: list[Paper], priorities: dict) -> list[Paper]:
-    return sorted(papers, key=lambda p: (priority_tier(p, priorities), blended_score(p, priorities)), reverse=True)
+    rng = similarity_range(papers)
+    return sorted(papers, key=lambda p: (priority_tier(p, priorities), blended_score(p, priorities, rng)), reverse=True)
 
 
 def shortlist(papers: list[Paper], limit: int, priorities: dict) -> list[Paper]:
-    """Cap how many papers the model has to read. Papers with code go first, otherwise source order holds."""
-    if priorities.get("code_first", True):
-        papers = sorted(papers, key=lambda p: p.has_code, reverse=True)  # stable
-    return papers[:limit]
+    """Pick which candidates the LLM reads: the most similar to query + interests, papers with
+    code first when code_first is on. Without similarity scores, source order holds."""
+    def key(p: Paper) -> tuple[bool, float]:
+        has_code = priorities.get("code_first", True) and p.has_code
+        return has_code, p.similarity if p.similarity is not None else float("-inf")
+    return sorted(papers, key=key, reverse=True)[:limit]  # stable, so ties keep source order

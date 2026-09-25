@@ -7,18 +7,21 @@ Providers, picked by `provider` in preferences.yaml:
               OpenAI-compatible chat API (see OPENAI_COMPATIBLE)
 """
 import base64
+import copy
 import io
 import json
 import logging
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
 from pydantic import BaseModel
 
+from .errors import CopilotError, RankingError, RankingTimeoutError
 from .models import Paper
 
 if TYPE_CHECKING:
@@ -180,6 +183,28 @@ def rank(papers: list[Paper], query: str, prefs: dict, liked: list[str], dislike
     return sorted(papers, key=lambda p: p.score if p.score is not None else -1, reverse=True)
 
 
+_rank_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="rank")
+
+
+def rank_with_timeout(papers: list[Paper], query: str, prefs: dict, liked: list[str], disliked: list[str],
+                      timeout: float) -> list[Paper]:
+    """rank(), but give up after `timeout` seconds so a slow or hung model can't stall the search.
+
+    The model works on copies: if it times out and finishes later, it can't change papers
+    the caller has already moved on with (and ranked by similarity instead).
+    """
+    fut = _rank_pool.submit(rank, copy.deepcopy(papers), query, prefs, liked, disliked)
+    try:
+        return fut.result(timeout=timeout)
+    except FuturesTimeout:
+        raise RankingTimeoutError(f"{prefs['model']} took over {timeout:.0f}s, so these are ranked by similarity. "
+                                  "Raise rank_timeout_seconds in preferences.yaml for slow local models.") from None
+    except CopilotError:
+        raise
+    except Exception as e:
+        raise RankingError(f"ranking failed, so these are ranked by similarity: {e}") from e
+
+
 def summarize(paper: Paper, prefs: dict, template: str) -> tuple[str, bool]:
     """Returns (markdown summary, used_full_text)."""
     pdf = _fetch_pdf(paper.pdf_url) if paper.pdf_url else None
@@ -296,13 +321,20 @@ def _openai_chat(prefs: dict, system: str, user: str, max_tokens: int, json_mode
     }
     if json_mode:
         body["response_format"] = {"type": "json_object"}
-    try:
-        r = httpx.post(f"{base_url.rstrip('/')}/chat/completions", json=body,
-                       headers={"Authorization": f"Bearer {key}"}, timeout=httpx.Timeout(180, connect=10))
-    except httpx.TimeoutException:
-        raise RuntimeError(f"{provider} didn't answer within 3 minutes.")
-    if r.status_code == 429:
+    for attempt in range(2):
+        try:
+            r = httpx.post(f"{base_url.rstrip('/')}/chat/completions", json=body,
+                           headers={"Authorization": f"Bearer {key}"}, timeout=httpx.Timeout(180, connect=10))
+        except httpx.TimeoutException:
+            raise RuntimeError(f"{provider} didn't answer within 3 minutes.")
         wait = r.headers.get("retry-after")
+        # Free tiers cap tokens per minute; back-to-back searches trip it. Wait once if it's short.
+        if r.status_code == 429 and attempt == 0 and wait and float(wait) <= 30:
+            log.info("%s rate limited, retrying in %ss", provider, wait)
+            time.sleep(float(wait))
+            continue
+        break
+    if r.status_code == 429:
         raise RuntimeError(f"{provider} rate limit hit{f' (retry in {wait}s)' if wait else ''}. "
                            "Wait a moment, or lower rank_at_most / context_tokens.")
     if r.status_code == 413:

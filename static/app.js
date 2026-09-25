@@ -83,6 +83,8 @@ function row(p, entry = null) {
       : (p.recruiter != null ? sig(false, "no named datasets") : ""),
     p.needs_gpu == null ? "" : sig(!p.needs_gpu, `${p.needs_gpu ? "needs gpu" : "cpu ok"}${p.compute_note ? ` · ${esc(p.compute_note)}` : ""}`),
     p.recruiter == null ? "" : sig(p.recruiter >= 7, `recruiter ${(+p.recruiter).toFixed(0)}/10`),
+    p.similarity == null ? "" : sig(p.similarity >= 0.8, `similarity ${(+p.similarity).toFixed(2)}`),
+    p.preference == null ? "" : sig(p.preference >= 0.5, `you'd like ${Math.round(100 * p.preference)}%`),
   ].filter(Boolean).join("");
 
   return `

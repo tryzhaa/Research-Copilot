@@ -21,6 +21,9 @@ class Paper:
     code_official: bool = False
     code_framework: str = ""
     stars: int = 0
+    # Filled in by retrieval (cosine similarity to query + interests, -1..1) and the preference model (P(like), 0..1)
+    similarity: float | None = None
+    preference: float | None = None
     # Filled in by the ranker
     score: float | None = None          # relevance to query + interests, 0-10
     reason: str = ""

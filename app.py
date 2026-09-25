@@ -9,9 +9,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from copilot import library, pwc
-from copilot.errors import RankingError
-from copilot.llm import rank, summarize
+from copilot import library, pwc, retrieval
+from copilot.errors import EmbeddingError, RankingError
+from copilot.llm import rank_with_timeout, summarize
 from copilot.models import Paper
 from copilot.prefs import load_prefs
 from copilot.search import prioritize, search_all, shortlist
@@ -96,12 +96,16 @@ def search(body: SearchIn) -> dict:
     papers, source_errors = search_all(body.query.strip(), prefs | {"priorities": priorities}, field_keys, body.use_s2)
     errors = [e.to_dict() for e in source_errors]
     candidates = len(papers)
+    try:
+        retrieval.score_similarity(papers, body.query, prefs.get("interests", ""))
+    except EmbeddingError as e:
+        errors.append(e.to_dict())  # shortlist falls back to source order
     papers = shortlist(papers, prefs.get("rank_at_most", 24), priorities)
     liked, disliked = library.rated_titles()
     try:
-        papers = rank(papers, body.query, prefs, liked, disliked)
-    except Exception as e:
-        errors.append(RankingError(f"ranking failed, showing unranked results: {e}").to_dict())
+        papers = rank_with_timeout(papers, body.query, prefs, liked, disliked, prefs.get("rank_timeout_seconds", 120))
+    except RankingError as e:
+        errors.append(e.to_dict())
     papers = prioritize(papers, priorities)
     return {
         "candidates": candidates,
