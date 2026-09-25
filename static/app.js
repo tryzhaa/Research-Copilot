@@ -261,10 +261,10 @@ async function drawResultsGraph(keys) {
   const related = data.nodes.length - data.nodes.filter(n => n.on_screen).length;
   note.textContent = `your results (bright) and ${related} related papers from earlier searches · `
     + `hover a result to find it · click a dot`;
-  // Wide screens: a column beside the results that stays in view (see .results-graph in the CSS).
-  const beside = matchMedia("(min-width: 1440px)").matches;
+  // 960 px and up: a column beside the results that stays in view (see #view-search in the CSS).
+  const beside = matchMedia("(min-width: 960px)").matches;
   resultsGraph = drawGraph($("#rg"), data, {
-    height: beside ? Math.max(300, Math.min(innerHeight - 320, 460)) : 300,
+    height: beside ? Math.max(300, Math.min(innerHeight - 260, 520)) : 300,
     big: d => d.on_screen,
     fill: (d, col) => d.on_screen ? col("--fg") : d.rating < 0 ? "none" : col("--faint"),
     onSelect: d => {
