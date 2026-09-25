@@ -68,6 +68,7 @@ candidates_per_source: 15
 rank_at_most: 16              # the most-similar candidates the LLM reads. On an 8 GB Mac a 4B model needs ~1-2 min per 8
 rank_timeout_seconds: 120     # give up on the LLM after this long and rank by similarity. Use ~600 on ollama
 show_top: 10
+eval_sample: 5                # random unshown candidates offered for rating, so the eval isn't only graded on the top 10
 
 # The exact shape of every summary. Markdown; Claude fills it in.
 summary_template: |

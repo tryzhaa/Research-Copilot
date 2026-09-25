@@ -3,6 +3,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import fields
+import random
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -114,11 +115,18 @@ def search(body: SearchIn) -> dict:
         snapshots.save(body.query, prefs, field_keys, pool, papers, feedback_titles=liked[-15:] + disliked[-15:])
     except OSError as e:
         log.warning("couldn't save search snapshot: %s", e)
+    shown = papers[:prefs["show_top"]]
+    shown_keys = {p.key for p in shown}
+    rest = [p for p in pool if p.key not in shown_keys]
     return {
         "candidates": candidates,
         "with_code": sum(p.has_code for p in papers),
         "code_index": pwc.status(),
-        "papers": [serialize(p) for p in papers[:prefs["show_top"]]],
+        "papers": [serialize(p) for p in shown],
+        # Rating a few candidates the ranker *didn't* show keeps the eval honest: otherwise
+        # every label comes from the current ranker's top 10, and a strategy that surfaces
+        # a paper it buried could never get credit.
+        "unranked_sample": [serialize(p) for p in random.sample(rest, min(prefs.get("eval_sample", 5), len(rest)))],
         "errors": errors,
     }
 

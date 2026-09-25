@@ -209,6 +209,7 @@ $("#search-form").addEventListener("submit", async e => {
   searching = true;
   $("#results").innerHTML = "";
   $("#errors").innerHTML = "";
+  $("#sample").hidden = true;
   const stop = ticker(s => setStatus(`searching, then ${modelName} reads the shortlist (a few minutes on a local model) · ${s}s`, true));
   try {
     const data = await api("/api/search", { query, fields, use_s2: $("#use-s2").checked, code_only: $("#code-only").checked });
@@ -219,6 +220,8 @@ $("#search-form").addEventListener("submit", async e => {
       : "nothing matched. try broader words, another field, or turn off code only");
     $("#errors").innerHTML = data.errors.map(errorRow).join("");
     $("#results").innerHTML = data.papers.map(p => row(p)).join("");
+    $("#sample-list").innerHTML = (data.unranked_sample || []).map(p => row(p)).join("");
+    $("#sample").hidden = !(data.unranked_sample || []).length;
   } catch (err) {
     stop();
     setStatus(err.message);
