@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from copilot import library, pwc, retrieval, snapshots
+from copilot import graph, library, pwc, retrieval, snapshots
 from copilot.errors import EmbeddingError, RankingError, RewriteError
 from copilot.llm import QueryRewrite, rank_with_timeout, rewrite_query, summarize
 from copilot.models import Paper
@@ -71,6 +71,15 @@ class SaveIn(BaseModel):
 
 class KeyIn(BaseModel):
     key: str
+
+
+class SimilarIn(BaseModel):
+    paper: dict
+    key: str | None = None  # the map sends graph keys directly
+
+
+class MapIn(BaseModel):
+    keys: list[str]  # papers on screen; the library is always included
 
 
 @app.get("/")
@@ -161,6 +170,30 @@ def summarize_paper(body: PaperIn) -> dict:
         raise HTTPException(502, f"Summary failed: {e}")
     library.upsert(paper, summary=text, full_text=full_text)
     return {"summary": text, "full_text": full_text}
+
+
+@app.post("/api/similar")
+def similar(body: SimilarIn) -> dict:
+    paper = to_paper(body.paper)
+    try:
+        found = graph.similar(paper.to_dict(), body.key or paper.key)
+    except EmbeddingError as e:
+        raise HTTPException(502, str(e))
+    return {"similar": found}
+
+
+@app.post("/api/map")
+def paper_map(body: MapIn) -> dict:
+    entries = library.entries()
+    ratings = {e["key"]: e["rating"] for e in entries}
+    try:
+        data = graph.neighbourhood(body.keys + [e["key"] for e in entries])
+    except EmbeddingError as e:
+        raise HTTPException(502, str(e))
+    for n in data["nodes"]:
+        n["rating"] = ratings.get(n["key"], 0)
+        n["on_screen"] = n["key"] in body.keys
+    return data
 
 
 @app.post("/api/rate")

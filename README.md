@@ -44,6 +44,14 @@ flowchart LR
    default) come first, then a configurable weighted mean of the signals each paper has. When the LLM times out or fails, its signals drop out and results
    fall back to similarity instead of arriving unranked.
 
+## Similarity graph
+
+Every paper you've come across (all saved searches plus your library) is linked to its 8 nearest
+neighbours by embedding similarity. **similar** on any paper runs a personalized PageRank walk
+from it: you get its closest papers, plus papers reached through the graph that plain
+nearest-neighbour search misses, each labelled with the paper that links them. The **map** tab
+draws the graph around what's on screen and in your library, so topic clusters are visible.
+
 ## Evaluation
 
 ```
@@ -83,7 +91,7 @@ memorize them. It enters the blend at `weights.preference: 0` until the evaluati
 
 ## Engineering
 
-- `mypy` with `disallow_untyped_defs`, 66 `pytest` tests (78% coverage of `copilot/`),
+- `mypy` with `disallow_untyped_defs`, 72 `pytest` tests,
   mocked HTTP for every source and the LLM client.
 - Typed errors (`SourceFetchError`, `RankingTimeoutError`, ...) reach the UI per source:
   which source failed and why (timeout, rate limit, network).

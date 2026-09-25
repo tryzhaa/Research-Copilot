@@ -14,8 +14,8 @@ from .models import Paper
 
 DIR = Path(__file__).resolve().parent.parent / "data" / "searches"
 
-# Only what the ranking strategies read — keeps snapshots small and the eval reproducible.
-KEEP = ("title", "abstract", "year", "citations", "source", "code_url", "similarity", "preference",
+# What the ranking strategies and the similarity graph read — keeps snapshots small and the eval reproducible.
+KEEP = ("title", "abstract", "year", "url", "citations", "source", "code_url", "similarity", "preference",
         "score", "recruiter", "datasets", "needs_gpu")
 
 

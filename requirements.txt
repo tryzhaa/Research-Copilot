@@ -10,3 +10,4 @@ duckdb
 fastembed
 numpy
 scikit-learn
+scipy

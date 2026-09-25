@@ -100,6 +100,7 @@ function row(p, entry = null) {
       <div class="actions">
         <button data-act="summarize">${hasSummary ? "summary" : "summarize"}</button>
         ${p.pdf_url ? `<a href="${esc(p.pdf_url)}" target="_blank" rel="noopener">pdf</a>` : ""}
+        <button data-act="similar">similar</button>
         <button data-act="bib">bibtex</button>
         <button data-act="save" class="${p.saved ? "on" : ""}">${p.saved ? "saved" : "save"}</button>
         <span class="rate">
@@ -108,9 +109,125 @@ function row(p, entry = null) {
         </span>
         ${entry ? `<button data-act="remove">remove</button>` : ""}
       </div>
+      <div class="similar-box" hidden></div>
       <div class="summary" hidden ${hasSummary ? `data-summary='${esc(JSON.stringify({ summary: entry.summary, full_text: entry.full_text }))}'` : ""}></div>
     </div>
   </li>`;
+}
+
+// ---------- similar papers (from the embedding graph) ----------
+
+function similarList(items) {
+  if (!items.length) return `<p class="note">nothing close enough yet. search more and the graph grows.</p>`;
+  const item = s => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>
+    <span class="sim">${(+s.similarity).toFixed(2)}${s.year ? ` · ${esc(s.year)}` : ""}</span>
+    ${s.via ? `<span class="via">via “${esc(s.via)}”</span>` : ""}</li>`;
+  const close = items.filter(s => s.direct), reached = items.filter(s => !s.direct);
+  return `<p class="note">closest</p><ol>${close.map(item).join("")}</ol>`
+    + (reached.length ? `<p class="note">found through the graph</p><ol>${reached.map(item).join("")}</ol>` : "");
+}
+
+async function similarRow(li, p) {
+  const btn = $('[data-act="similar"]', li);
+  const box = $(".similar-box", li);
+  if (box.dataset.loaded) {
+    box.hidden = !box.hidden;
+    btn.textContent = box.hidden ? "similar" : "hide similar";
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "finding…";
+  try {
+    const d = await api("/api/similar", { paper: p });
+    box.innerHTML = similarList(d.similar);
+    box.dataset.loaded = "1";
+    box.hidden = false;
+    btn.textContent = "hide similar";
+  } catch (err) {
+    box.hidden = false;
+    box.innerHTML = `<p class="note">${esc(err.message)}</p>`;
+    btn.textContent = "similar";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- map: the similarity graph around what's on screen and in your library ----------
+
+async function drawMap() {
+  const note = $("#map-note"), box = $("#map");
+  if (!window.d3) return (note.textContent = "couldn't load the graph library (d3). check your connection.");
+  note.textContent = "building the map…";
+  const keys = $$("#results .paper, #sample-list .paper").map(li => li.dataset.key);
+  const data = await api("/api/map", { keys });
+  if (!data.nodes.length) {
+    box.innerHTML = "";
+    return (note.textContent = "nothing to map yet. run a search or rate a few papers.");
+  }
+  note.textContent = `${data.nodes.length} of ${data.total_papers} papers you've seen · lines join similar papers · `
+    + `bright = liked, ring = disliked, light = on screen · drag, ⌘/ctrl + scroll to zoom, click a dot`;
+
+  const css = getComputedStyle(document.documentElement), col = v => css.getPropertyValue(v).trim();
+  const w = box.clientWidth, h = Math.max(420, Math.min(680, innerHeight - 240));
+  box.innerHTML = "";
+  const svg = d3.select(box).append("svg").attr("viewBox", [0, 0, w, h]).attr("height", h);
+  const g = svg.append("g");
+  // Plain scrolling keeps scrolling the page; zoom with ⌘/ctrl + scroll or a pinch.
+  const zoom = d3.zoom().scaleExtent([0.3, 6]).filter(e => e.type !== "wheel" || e.ctrlKey || e.metaKey)
+    .on("zoom", e => g.attr("transform", e.transform));
+  svg.call(zoom);
+
+  const nodes = data.nodes.map(d => ({ ...d })), links = data.links.map(d => ({ ...d }));
+  const link = g.append("g").attr("stroke", col("--faint")).selectAll("line").data(links).join("line")
+    .attr("stroke-opacity", d => 0.15 + (d.sim - 0.6) * 1.5).attr("stroke-width", 0.8);
+  const fill = d => d.rating > 0 ? col("--fg") : d.rating < 0 ? "none" : d.on_screen ? col("--soft") : col("--faint");
+  const node = g.append("g").selectAll("circle").data(nodes).join("circle")
+    .attr("r", d => d.rating || d.on_screen ? 5.5 : 3.5)
+    .attr("fill", fill)
+    .attr("stroke", d => d.rating < 0 ? col("--muted") : "none").attr("stroke-width", 1.2)
+    .style("cursor", "pointer")
+    .on("click", (e, d) => selectNode(d));
+  node.append("title").text(d => `${d.title}${d.year ? ` (${d.year})` : ""}`);
+
+  const sim = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(links).id(d => d.key).distance(d => 20 + 140 * (1 - d.sim)).strength(0.4))
+    .force("charge", d3.forceManyBody().strength(-38))
+    .force("center", d3.forceCenter(w / 2, h / 2))
+    .force("collide", d3.forceCollide(7))
+    .force("x", d3.forceX(w / 2).strength(0.05))  // keeps small disconnected groups from drifting off
+    .force("y", d3.forceY(h / 2).strength(0.08))
+    .on("tick", () => {
+      link.attr("x1", d => d.source.x).attr("y1", d => d.source.y).attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+      node.attr("cx", d => d.x).attr("cy", d => d.y);
+    })
+    .on("end", () => {  // once settled, zoom to fit everything
+      const xs = nodes.map(d => d.x), ys = nodes.map(d => d.y), pad = 24;
+      const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      const k = Math.min(3, 0.95 * Math.min(w / (x1 - x0 + 2 * pad), h / (y1 - y0 + 2 * pad)));
+      svg.transition().duration(500).call(zoom.transform,
+        d3.zoomIdentity.translate(w / 2, h / 2).scale(k).translate(-(x0 + x1) / 2, -(y0 + y1) / 2));
+    });
+  node.call(d3.drag()
+    .on("start", (e, d) => { if (!e.active) sim.alphaTarget(0.2).restart(); d.fx = d.x; d.fy = d.y; })
+    .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
+    .on("end", (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = d.fy = null; }));
+
+  async function selectNode(d) {
+    const linked = new Set([d.key]);
+    links.forEach(l => { if (l.source.key === d.key) linked.add(l.target.key); if (l.target.key === d.key) linked.add(l.source.key); });
+    node.attr("opacity", n => linked.has(n.key) ? 1 : 0.2);
+    link.attr("stroke", l => l.source.key === d.key || l.target.key === d.key ? col("--soft") : col("--faint"));
+    const card = $("#map-card");
+    card.hidden = false;
+    card.innerHTML = `<h2><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.title)}</a></h2>
+      <p class="note">${d.year ? esc(d.year) + " · " : ""}finding similar papers…</p>`;
+    try {
+      const s = await api("/api/similar", { paper: { title: d.title }, key: d.key });
+      card.innerHTML = `<h2><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.title)}</a></h2>${similarList(s.similar)}`;
+    } catch (err) {
+      $(".note", card).textContent = err.message;
+    }
+  }
 }
 
 function showSummary(li, d) {
@@ -157,6 +274,7 @@ document.addEventListener("click", async e => {
   try {
     switch (btn.dataset.act) {
       case "summarize": return summarizeRow(li, p);
+      case "similar": return similarRow(li, p);
       case "regen": return summarizeRow(li, p, true);
       case "bib":
         await navigator.clipboard.writeText(p.bibtex);
@@ -286,7 +404,9 @@ function showView(name) {
   $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.view === name));
   $("#view-search").hidden = name !== "search";
   $("#view-library").hidden = name !== "library";
+  $("#view-map").hidden = name !== "map";
   if (name === "library") loadLibrary().catch(err => setStatus(err.message));
+  else if (name === "map") drawMap().catch(err => { $("#map-note").textContent = err.message; });
   else $("#q").focus();
 }
 $$("nav button").forEach(b => b.addEventListener("click", () => showView(b.dataset.view)));
