@@ -1,0 +1,14 @@
+# What `gcloud run deploy --source .` uploads to Cloud Build. Keep secrets and personal data out.
+.gcloudignore
+.git
+.gitignore
+.env
+library.json
+library.tmp
+data/
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.coverage
+.DS_Store

@@ -1,13 +1,3 @@
----
-title: Research Copilot
-emoji: 📄
-colorFrom: gray
-colorTo: gray
-sdk: docker
-app_port: 7860
-short_description: Finds and ranks research papers you can implement
----
-
 # Research Copilot
 
 [![CI](https://github.com/tryzhaa/Research-Copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/tryzhaa/Research-Copilot/actions/workflows/ci.yml)
@@ -127,21 +117,47 @@ fetched, reranked and shown.
 
 ## Deploy
 
-The repo is also a Hugging Face Space (the header at the top of this file is its config). The
-`Dockerfile` builds the Papers with Code index and the embedding model into the image and runs
-with `DEMO_MODE=1`:
+The `Dockerfile` builds a public demo image: the Papers with Code index and the embedding model
+are baked in, and it runs with `DEMO_MODE=1`:
 
 - **Read-only.** Rating, saving, folders and removing return 403 and are hidden: one process
   serves every visitor, so writes would leak between strangers and steer each other's rankings.
-  Your `library.json`, `.env` and `data/` never enter the image (`.dockerignore`).
+  `library.json`, `.env` and `data/` never enter the image (`.dockerignore`, `.gcloudignore`).
 - **Rate-limited.** Each visitor gets `DEMO_SEARCHES_PER_HOUR` searches (default 5) and
   `DEMO_SUMMARIES_PER_HOUR` summaries (5); all visitors share `DEMO_DAILY_LIMIT` model calls a
-  day (150), which keeps a free Groq key inside its quota.
+  day (150), which keeps a free Groq key inside its quota. Counts live in memory, so they reset
+  when the instance restarts.
 
-To deploy: create a Docker Space on huggingface.co, add `GROQ_API_KEY` (and optionally
-`OPENALEX_API_KEY`) under Settings → Variables and secrets, then
+Locally: `docker build -t research-copilot . && docker run -p 7860:7860 --env-file .env research-copilot`.
+Measured in a container limited to 1 GB and 1 CPU: ~650 MB at peak, a 5 s start, and 20-65 s
+per three-field search, most of it OpenAlex (10-50 s per query on its side) and embedding ~80
+candidates on one CPU (~25 s).
+
+### Google Cloud Run
+
+Scales to zero, so an idle demo costs nothing; the first visit after a quiet spell waits for a
+cold start. Needs the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and a project with billing
+enabled (set a budget alert under Billing → Budgets).
 
 ```
-git remote add space https://huggingface.co/spaces/<user>/research-copilot
-git push space main      # password: a Hugging Face access token with write access
+gcloud auth login
+gcloud config set project <project-id>
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
+    artifactregistry.googleapis.com secretmanager.googleapis.com
+
+# API keys go in Secret Manager, never in the image
+printf %s "<groq key>" | gcloud secrets create groq-api-key --data-file=-
+printf %s "<openalex key>" | gcloud secrets create openalex-api-key --data-file=-
+SA="$(gcloud projects describe "$(gcloud config get-value project)" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+for s in groq-api-key openalex-api-key; do
+  gcloud secrets add-iam-policy-binding $s --member="serviceAccount:$SA" --role=roles/secretmanager.secretAccessor
+done
+
+# Builds the Dockerfile in Cloud Build, then deploys
+gcloud run deploy research-copilot --source . --region us-central1 --allow-unauthenticated \
+    --memory 1Gi --cpu 1 --cpu-boost --min-instances 0 --max-instances 1 \
+    --set-secrets GROQ_API_KEY=groq-api-key:latest,OPENALEX_API_KEY=openalex-api-key:latest
 ```
+
+`--max-instances 1` keeps the demo's rate limits in one place and caps spend. Redeploy after a
+change by re-running the last command.
