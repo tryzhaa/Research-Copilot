@@ -569,7 +569,15 @@ $$("nav button").forEach(b => b.addEventListener("click", () => showView(b.datas
     }
     modelName = prefs.model;
     allFolders = (await api("/api/folders")).folders;
-    $("#foot").textContent = `${prefs.model} via ${prefs.provider} · ${prefs.effort} effort · settings live in preferences.yaml`;
+    if (prefs.demo) {
+      // Public demo: read-only, rate-limited. CSS hides everything that writes to the shared library.
+      document.body.classList.add("demo");
+      $("#foot").innerHTML = `public demo · read-only · ${prefs.demo.searches_per_hour} searches an hour · `
+        + `${esc(prefs.model)} via ${esc(prefs.provider)} · `
+        + `<a href="https://github.com/tryzhaa/Research-Copilot" target="_blank" rel="noopener">run it yourself ↗</a>`;
+    } else {
+      $("#foot").textContent = `${prefs.model} via ${prefs.provider} · ${prefs.effort} effort · settings live in preferences.yaml`;
+    }
     refreshLibCount();
   } catch (err) {
     setStatus(`can't reach the server: ${err.message}`);

@@ -5,12 +5,12 @@ from contextlib import asynccontextmanager
 import random
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from copilot import graph, library, pwc, retrieval, snapshots
+from copilot import demo, graph, library, pwc, retrieval, snapshots
 from copilot.errors import EmbeddingError, RankingError, RewriteError
 from copilot.llm import QueryRewrite, rank_with_timeout, rewrite_query, summarize
 from copilot.models import InvalidPaper, Paper
@@ -37,6 +37,25 @@ async def invalid_paper(_: Request, e: InvalidPaper) -> JSONResponse:
 
 def to_paper(d: dict) -> Paper:
     return Paper.from_dict(d)
+
+
+def client_ip(request: Request) -> str:
+    # Hosts like Hugging Face Spaces sit behind a proxy; the visitor is the first forwarded address.
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    return forwarded or (request.client.host if request.client else "unknown")
+
+
+def owner_only() -> None:
+    """Routes that change the shared library. The public demo is read-only."""
+    if demo.enabled():
+        raise HTTPException(403, "This is a read-only demo. Run it yourself to rate and save papers: "
+                                 "github.com/tryzhaa/Research-Copilot")
+
+
+def spend(request: Request, kind: str) -> None:
+    """In the demo, count a search or summary against the visitor's and the day's LLM quota."""
+    if demo.enabled() and (refusal := demo.spend(kind, client_ip(request))):
+        raise HTTPException(429, refusal)
 
 
 def serialize(p: Paper) -> dict:
@@ -107,15 +126,17 @@ def get_prefs() -> dict:
         "provider": prefs.get("provider", "ollama"),
         "model": prefs["model"],
         "effort": prefs.get("effort", "medium"),
+        "demo": demo.limits() if demo.enabled() else None,
     }
 
 
 @app.post("/api/search")
-def search(body: SearchIn) -> dict:
+def search(body: SearchIn, request: Request) -> dict:
     prefs = load_prefs()
     field_keys = [k for k in body.fields if k in prefs["fields"]]
     if not body.query.strip() or not field_keys:
         raise HTTPException(400, "Enter a query and pick at least one field.")
+    spend(request, "search")
     priorities = prefs.get("priorities", {}) | ({"require_code": True} if body.code_only else {})
     query = body.query.strip()
     errors: list[dict] = []
@@ -164,17 +185,21 @@ def search(body: SearchIn) -> dict:
         # Rating a few candidates the ranker *didn't* show keeps the eval honest: otherwise
         # every label comes from the current ranker's top 10, and a strategy that surfaces
         # a paper it buried could never get credit.
-        "unranked_sample": [serialize(p) for p in random.sample(rest, min(prefs.get("eval_sample", 5), len(rest)))],
+        # (Not in the demo, where nobody can rate.)
+        "unranked_sample": [] if demo.enabled() else
+                           [serialize(p) for p in random.sample(rest, min(prefs.get("eval_sample", 5), len(rest)))],
         "errors": errors,
     }
 
 
 @app.post("/api/summarize")
-def summarize_paper(body: PaperIn) -> dict:
+def summarize_paper(body: PaperIn, request: Request) -> dict:
     paper = to_paper(body.paper)
     cached = library.get(paper.key)
-    if cached and cached.get("summary") and not body.refresh:
+    # The demo always serves a cached summary: regenerating is a paid call for no new paper.
+    if cached and cached.get("summary") and (not body.refresh or demo.enabled()):
         return {"summary": cached["summary"], "full_text": cached["full_text"]}
+    spend(request, "summary")
     prefs = load_prefs()
     try:
         text, full_text = summarize(paper, prefs, prefs["summary_template"])
@@ -210,19 +235,19 @@ def paper_map(body: MapIn) -> dict:
 
 
 @app.post("/api/rate")
-def rate(body: RateIn) -> dict:
+def rate(body: RateIn, _: None = Depends(owner_only)) -> dict:
     library.upsert(to_paper(body.paper), rating=max(-1, min(1, body.rating)))
     return {"ok": True}
 
 
 @app.post("/api/save")
-def save(body: SaveIn) -> dict:
+def save(body: SaveIn, _: None = Depends(owner_only)) -> dict:
     library.upsert(to_paper(body.paper), saved=body.saved)
     return {"ok": True}
 
 
 @app.post("/api/folder")
-def folder(body: FolderIn) -> dict:
+def folder(body: FolderIn, _: None = Depends(owner_only)) -> dict:
     try:
         entry = library.set_folder(to_paper(body.paper), body.folder, body.add)
     except ValueError as e:
@@ -241,6 +266,6 @@ def get_library() -> dict:
 
 
 @app.post("/api/library/remove")
-def remove(body: KeyIn) -> dict:
+def remove(body: KeyIn, _: None = Depends(owner_only)) -> dict:
     library.remove(body.key)
     return {"ok": True}

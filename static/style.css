@@ -206,3 +206,9 @@ footer { padding-bottom: 32px; font: 12px var(--mono); color: var(--faint); }
   .summary { padding-left: 14px; }
   .lib-head { padding-top: 48px; flex-direction: column; }
 }
+
+/* ---------- public demo: read-only ---------- */
+.demo [data-act="save"], .demo [data-act="folder"], .demo [data-act="remove"], .demo [data-act="regen"],
+.demo .actions .rate, .demo nav [data-view="library"], .demo #sample { display: none !important; }
+#foot a { color: var(--muted); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+#foot a:hover { color: var(--fg); }
