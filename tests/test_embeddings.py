@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from copilot import embed_cache
+from copilot import embed_cache, embeddings
 
 
 @pytest.fixture
@@ -44,3 +44,11 @@ def test_all_cached_embeds_nothing(tmp_path: Path, fake_embed: list[list[str]]) 
     embed_cache.get_embeddings(["k1"], ["aa"], db)
     embed_cache.get_embeddings(["k1"], ["aa"], db)
     assert fake_embed[1] == []
+
+
+def test_cpu_limit_reads_the_cgroup_quota(tmp_path: Path) -> None:
+    cpu_max = tmp_path / "cpu.max"
+    for content, expected in [("50000 100000\n", 1), ("150000 100000\n", 2), ("max 100000\n", None)]:
+        cpu_max.write_text(content)
+        assert embeddings.cpu_limit(cpu_max) == expected
+    assert embeddings.cpu_limit(tmp_path / "missing") is None
