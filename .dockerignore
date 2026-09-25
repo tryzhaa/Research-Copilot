@@ -1,0 +1,13 @@
+# Secrets and personal data stay on your machine: the demo starts with an empty library.
+.env
+library.json
+library.tmp
+data/
+# Local tooling
+.git
+.venv
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.coverage
+.DS_Store

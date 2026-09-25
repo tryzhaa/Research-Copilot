@@ -1,3 +1,13 @@
+---
+title: Research Copilot
+emoji: 📄
+colorFrom: gray
+colorTo: gray
+sdk: docker
+app_port: 7860
+short_description: Finds and ranks research papers you can implement
+---
+
 # Research Copilot
 
 [![CI](https://github.com/tryzhaa/Research-Copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/tryzhaa/Research-Copilot/actions/workflows/ci.yml)
@@ -114,3 +124,24 @@ echo "GROQ_API_KEY=..." > .env          # or set provider: ollama in preferences
 Everything that shapes ranking lives in `preferences.yaml` and is re-read on every request:
 provider and model, fields, filters, interests, tiers, blend weights, and how many papers are
 fetched, reranked and shown.
+
+## Deploy
+
+The repo is also a Hugging Face Space (the header at the top of this file is its config). The
+`Dockerfile` builds the Papers with Code index and the embedding model into the image and runs
+with `DEMO_MODE=1`:
+
+- **Read-only.** Rating, saving, folders and removing return 403 and are hidden: one process
+  serves every visitor, so writes would leak between strangers and steer each other's rankings.
+  Your `library.json`, `.env` and `data/` never enter the image (`.dockerignore`).
+- **Rate-limited.** Each visitor gets `DEMO_SEARCHES_PER_HOUR` searches (default 5) and
+  `DEMO_SUMMARIES_PER_HOUR` summaries (5); all visitors share `DEMO_DAILY_LIMIT` model calls a
+  day (150), which keeps a free Groq key inside its quota.
+
+To deploy: create a Docker Space on huggingface.co, add `GROQ_API_KEY` (and optionally
+`OPENALEX_API_KEY`) under Settings → Variables and secrets, then
+
+```
+git remote add space https://huggingface.co/spaces/<user>/research-copilot
+git push space main      # password: a Hugging Face access token with write access
+```
