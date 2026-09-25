@@ -1,4 +1,5 @@
 """Research Copilot web app. Run: uvicorn app:app --reload  →  http://localhost:8000"""
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import fields
 from pathlib import Path
@@ -18,7 +19,7 @@ ROOT = Path(__file__).parent
 PAPER_FIELDS = {f.name for f in fields(Paper)}
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     pwc.build_in_background()  # one-time Papers with Code index; searches work without it meanwhile
     yield
 
@@ -69,12 +70,12 @@ class KeyIn(BaseModel):
 
 
 @app.get("/")
-def index():
+def index() -> FileResponse:
     return FileResponse(ROOT / "static" / "index.html")
 
 
 @app.get("/api/prefs")
-def get_prefs():
+def get_prefs() -> dict:
     prefs = load_prefs()
     return {
         "fields": {k: v["label"] for k, v in prefs["fields"].items()},
@@ -85,7 +86,7 @@ def get_prefs():
 
 
 @app.post("/api/search")
-def search(body: SearchIn):
+def search(body: SearchIn) -> dict:
     prefs = load_prefs()
     field_keys = [k for k in body.fields if k in prefs["fields"]]
     if not body.query.strip() or not field_keys:
@@ -110,7 +111,7 @@ def search(body: SearchIn):
 
 
 @app.post("/api/summarize")
-def summarize_paper(body: PaperIn):
+def summarize_paper(body: PaperIn) -> dict:
     paper = to_paper(body.paper)
     cached = library.get(paper.key)
     if cached and cached.get("summary") and not body.refresh:
@@ -125,23 +126,23 @@ def summarize_paper(body: PaperIn):
 
 
 @app.post("/api/rate")
-def rate(body: RateIn):
+def rate(body: RateIn) -> dict:
     library.upsert(to_paper(body.paper), rating=max(-1, min(1, body.rating)))
     return {"ok": True}
 
 
 @app.post("/api/save")
-def save(body: SaveIn):
+def save(body: SaveIn) -> dict:
     library.upsert(to_paper(body.paper), saved=body.saved)
     return {"ok": True}
 
 
 @app.get("/api/library")
-def get_library():
+def get_library() -> dict:
     return {"entries": [e | {"bibtex": to_paper(e["paper"]).bibtex()} for e in library.entries()]}
 
 
 @app.post("/api/library/remove")
-def remove(body: KeyIn):
+def remove(body: KeyIn) -> dict:
     library.remove(body.key)
     return {"ok": True}

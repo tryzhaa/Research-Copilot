@@ -1,0 +1,6 @@
+-r requirements.txt
+mypy
+types-PyYAML
+pytest
+pytest-cov
+pytest-httpx

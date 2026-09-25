@@ -21,6 +21,7 @@ def _get(url: str, params: dict, headers: dict = HEADERS, tries: int = 4) -> htt
             r.raise_for_status()
             return r
         time.sleep(float(r.headers.get("Retry-After", 0)) or 1.5 * 2 ** attempt)
+    raise ValueError("tries must be at least 1")
 
 
 def search_arxiv(query: str, categories: list[str], limit: int, field: str) -> list[Paper]:

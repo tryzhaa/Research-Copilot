@@ -11,7 +11,8 @@ _lock = threading.Lock()
 
 
 def _load() -> dict:
-    return json.loads(PATH.read_text()) if PATH.exists() else {}
+    data: dict = json.loads(PATH.read_text()) if PATH.exists() else {}
+    return data
 
 
 def _save(data: dict) -> None:
@@ -30,7 +31,7 @@ def get(key: str) -> dict | None:
         return _load().get(key)
 
 
-def upsert(paper: Paper, **changes) -> dict:
+def upsert(paper: Paper, **changes: object) -> dict:
     with _lock:
         data = _load()
         now = time.time()

@@ -7,4 +7,5 @@ PATH = Path(__file__).resolve().parent.parent / "preferences.yaml"
 
 
 def load_prefs() -> dict:
-    return yaml.safe_load(PATH.read_text())
+    prefs: dict = yaml.safe_load(PATH.read_text())
+    return prefs

@@ -14,11 +14,15 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from pydantic import BaseModel
 
 from .models import Paper
+
+if TYPE_CHECKING:
+    import anthropic
 
 
 def _load_dotenv() -> None:
@@ -134,7 +138,7 @@ def _apply_scores(papers: list[Paper], ranking: Ranking) -> None:
 
 def _clean_datasets(names: list[str]) -> list[str]:
     """Keep proper dataset names; small models also return descriptions like "3D molecular data"."""
-    out = []
+    out: list[str] = []
     for d in names:
         d = re.sub(r"\s+(dataset|datasets|benchmark)$", "", d.strip(), flags=re.I)
         if not d or re.search(r"\bdata\b", d, re.I) or not re.search(r"[A-Z0-9]", d):
@@ -332,11 +336,11 @@ def _summarize_openai(paper: Paper, prefs: dict, template: str, pdf: bytes | Non
 # ---------- anthropic (Claude API) ----------
 
 # Server-side refusal fallback: if the model declines, the API re-runs on a fallback model.
-FALLBACK = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
-_claude = None
+FALLBACK: dict[str, Any] = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+_claude: "anthropic.Anthropic | None" = None
 
 
-def _client():
+def _client() -> "anthropic.Anthropic":
     global _claude
     if _claude is None:
         import anthropic
@@ -360,7 +364,7 @@ def _rank_claude(papers: list[Paper], query: str, prefs: dict, liked: list[str],
 
 
 def _summarize_claude(paper: Paper, prefs: dict, template: str, pdf: bytes | None) -> tuple[str, bool]:
-    content: list[dict] = []
+    content: list[Any] = []
     if pdf:
         content.append({
             "type": "document",

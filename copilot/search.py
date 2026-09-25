@@ -1,5 +1,7 @@
 """Fan out to every source for every selected field, then dedupe and hard-filter."""
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from itertools import zip_longest
 
 from . import pwc
@@ -11,19 +13,20 @@ def search_all(query: str, prefs: dict, field_keys: list[str], use_s2: bool = Fa
     """Returns (papers, errors). A failing source is reported, not fatal."""
     n = prefs["candidates_per_source"]
     min_year = prefs["filters"]["min_year"]
-    jobs = []
+    jobs: list[tuple[str, str, Callable[[], list[Paper]]]] = []
     for key in field_keys:
         f = prefs["fields"][key]
-        jobs.append(("arXiv", key, lambda f=f, key=key: search_arxiv(query, f.get("arxiv_categories", []), n, key)))
-        jobs.append(("OpenAlex", key, lambda f=f, key=key: search_openalex(query, f.get("openalex_field"), n, key, min_year)))
+        jobs.append(("arXiv", key, partial(search_arxiv, query, f.get("arxiv_categories", []), n, key)))
+        jobs.append(("OpenAlex", key, partial(search_openalex, query, f.get("openalex_field"), n, key, min_year)))
         if use_s2:
-            jobs.append(("Semantic Scholar", key, lambda f=f, key=key: search_semantic_scholar(query, f.get("s2_field"), n, key, min_year)))
+            jobs.append(("Semantic Scholar", key, partial(search_semantic_scholar, query, f.get("s2_field"), n, key, min_year)))
 
     # Hugging Face Papers (Papers with Code's successor) isn't split by field, so it runs once.
     hf_field = "ml" if "ml" in field_keys else field_keys[0]
-    jobs.insert(0, ("Hugging Face", hf_field, lambda: search_hf_papers(query, n, hf_field)))
+    jobs.insert(0, ("Hugging Face", hf_field, partial(search_hf_papers, query, n, hf_field)))
 
-    results, errors = [], []
+    results: list[list[Paper]] = []
+    errors: list[str] = []
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = [(name, key, pool.submit(fn)) for name, key, fn in jobs]
         for name, key, fut in futures:
@@ -118,7 +121,7 @@ def priority_tier(p: Paper, priorities: dict) -> int:
 def blended_score(p: Paper, priorities: dict) -> float:
     w = priorities.get("weights", {"relevance": 0.5, "recruiter": 0.5})
     rel, rec = p.score or 0.0, p.recruiter or 0.0
-    return (w.get("relevance", 0.5) * rel + w.get("recruiter", 0.5) * rec) / max(1e-9, sum(w.values()))
+    return float((w.get("relevance", 0.5) * rel + w.get("recruiter", 0.5) * rec) / max(1e-9, sum(w.values())))
 
 
 def prioritize(papers: list[Paper], priorities: dict) -> list[Paper]:
