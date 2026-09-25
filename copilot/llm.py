@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from .errors import CopilotError, RankingError, RankingTimeoutError, RewriteError
 from .models import Paper
+from .sources import arxiv_wait, tls_for
 
 if TYPE_CHECKING:
     import anthropic
@@ -166,8 +167,11 @@ def _summary_request(paper: Paper, prefs: dict, template: str, has_full_text: bo
 
 
 def _fetch_pdf(url: str) -> bytes | None:
+    if "arxiv.org" in url:
+        arxiv_wait()
     try:
-        r = httpx.get(url, follow_redirects=True, timeout=60, headers={"User-Agent": "research-copilot/0.1"})
+        r = httpx.get(url, follow_redirects=True, timeout=60, headers={"User-Agent": "research-copilot/0.1"},
+                      verify=tls_for(url))
         if r.status_code == 200 and r.content[:4] == b"%PDF" and len(r.content) < MAX_PDF_BYTES:
             return r.content
     except httpx.HTTPError:

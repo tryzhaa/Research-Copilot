@@ -16,3 +16,10 @@ def prefs() -> dict:
 
 def paper(title: str, **kw: object) -> Paper:
     return Paper(title=title, **kw)  # type: ignore[arg-type]
+
+
+@pytest.fixture(autouse=True)
+def no_arxiv_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Real arXiv requests are spaced 3 s apart; mocked ones needn't be."""
+    from copilot import sources
+    monkeypatch.setattr(sources, "ARXIV_GAP", 0.0)

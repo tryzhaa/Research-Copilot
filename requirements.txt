@@ -11,3 +11,4 @@ fastembed
 numpy
 scikit-learn
 scipy
+certifi

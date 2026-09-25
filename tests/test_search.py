@@ -123,3 +123,49 @@ def test_openalex_sends_api_key_when_set(httpx_mock: HTTPXMock, monkeypatch: obj
     httpx_mock.add_response(json={"results": []})
     sources.search_openalex("q", 17, 5, "ml", 2015)
     assert httpx_mock.get_requests()[0].url.params["api_key"] == "k123"
+
+
+def test_arxiv_requests_are_spaced_across_threads(monkeypatch: object) -> None:
+    import threading
+
+    clock = {"now": 100.0}
+    slept: list[float] = []
+
+    def sleep(s: float) -> None:
+        slept.append(s)
+        clock["now"] += s
+    monkeypatch.setattr(sources, "ARXIV_GAP", 3.0)  # type: ignore[attr-defined]
+    monkeypatch.setattr(sources, "_arxiv_last", 0.0)  # type: ignore[attr-defined]
+    monkeypatch.setattr(sources.time, "monotonic", lambda: clock["now"])  # type: ignore[attr-defined]
+    monkeypatch.setattr(sources.time, "sleep", sleep)  # type: ignore[attr-defined]
+    threads = [threading.Thread(target=sources.arxiv_wait) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert slept == [3.0, 3.0]  # the first goes straight away, the next two wait their turn
+
+
+def test_arxiv_requests_offer_only_classic_key_exchange(monkeypatch: object) -> None:
+    import ssl
+    seen: dict[str, object] = {}
+
+    def fake_get(url: str, **kw: object) -> httpx.Response:
+        seen[url] = kw["verify"]
+        return httpx.Response(200, text="<feed xmlns='http://www.w3.org/2005/Atom'></feed>" if "arxiv" in url else "[]",
+                              request=httpx.Request("GET", url))
+    monkeypatch.setattr(sources.httpx, "get", fake_get)  # type: ignore[attr-defined]
+    sources.search_arxiv("q", ["cs.LG"], 5, "ml")
+    sources.search_hf_papers("q", 5, "ml")
+    [(arxiv_url, arxiv_tls), (hf_url, hf_tls)] = seen.items()
+    assert "arxiv.org" in arxiv_url and isinstance(arxiv_tls, ssl.SSLContext)
+    assert arxiv_tls is sources.ARXIV_TLS and arxiv_tls.verify_mode == ssl.CERT_REQUIRED
+    assert hf_tls is True  # other hosts keep httpx's defaults
+
+
+def test_406_is_not_retried(httpx_mock: HTTPXMock) -> None:
+    import pytest
+    httpx_mock.add_response(status_code=406)
+    with pytest.raises(httpx.HTTPStatusError):
+        sources.search_arxiv("q", ["cs.LG"], 5, "ml")
+    assert len(httpx_mock.get_requests()) == 1

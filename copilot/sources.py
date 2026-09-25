@@ -1,8 +1,11 @@
 """Fetchers for arXiv, OpenAlex and Semantic Scholar. Each returns list[Paper]."""
 import os
 import re
+import ssl
+import threading
 import time
 
+import certifi
 import feedparser
 import httpx
 
@@ -13,10 +16,48 @@ TIMEOUT = 20
 STOPWORDS = {"a", "an", "and", "the", "of", "in", "on", "for", "to", "with", "by", "from", "via", "or", "is", "are"}
 
 
+ARXIV_GAP = 3.0  # arXiv's API terms: no more than one request every 3 seconds
+_arxiv_lock = threading.Lock()
+_arxiv_last = 0.0
+
+
+def arxiv_wait() -> None:
+    """Space requests to arXiv (API and PDFs) ARXIV_GAP apart across all threads, as arXiv's
+    API terms ask; a three-field search would otherwise send three queries at once."""
+    global _arxiv_last
+    with _arxiv_lock:
+        delay = _arxiv_last + ARXIV_GAP - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        _arxiv_last = time.monotonic()
+
+
+def _arxiv_tls() -> ssl.SSLContext:
+    """TLS for arXiv: offer the classic X25519 key exchange only.
+
+    OpenSSL 3.5 (e.g. python:3.12-slim) offers the post-quantum X25519MLKEM768 key share by
+    default, and arXiv's edge answers those connections with an empty 406: every arXiv search
+    and PDF failed in Docker while the same request from a Mac on OpenSSL 3.0 worked. Pinning
+    the key exchange fixed it (406 -> 200) without touching TLS for any other host."""
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    ctx.set_ecdh_curve("X25519")
+    return ctx
+
+
+ARXIV_TLS = _arxiv_tls()
+
+
+def tls_for(url: str) -> ssl.SSLContext | bool:
+    """The `verify=` argument for an httpx request to `url`."""
+    return ARXIV_TLS if "arxiv.org" in url else True
+
+
 def _get(url: str, params: dict, headers: dict = HEADERS, tries: int = 4) -> httpx.Response:
     """GET with backoff on rate limits and server hiccups — parallel field searches trip them easily."""
     for attempt in range(tries):
-        r = httpx.get(url, params=params, headers=headers, timeout=TIMEOUT)
+        if "arxiv.org" in url:
+            arxiv_wait()
+        r = httpx.get(url, params=params, headers=headers, timeout=TIMEOUT, verify=tls_for(url))
         if r.status_code not in (429, 500, 502, 503) or attempt == tries - 1:
             r.raise_for_status()
             return r
