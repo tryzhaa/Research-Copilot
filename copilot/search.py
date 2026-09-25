@@ -108,16 +108,19 @@ def apply_filters(papers: list[Paper], filters: dict, priorities: dict) -> list[
     return out
 
 
+DEFAULT_TIER_ORDER = ["datasets", "code", "cpu"]
+
+
 def priority_tier(p: Paper, priorities: dict) -> int:
-    """Hard preferences, in order: has code > enough datasets > no GPU needed. Higher tier sorts first."""
-    tier = 0
-    if priorities.get("code_first", True) and p.has_code:
-        tier += 4
-    if len(p.datasets) >= priorities.get("min_datasets", 2):
-        tier += 2
-    if priorities.get("prefer_cpu", True) and p.needs_gpu is False:
-        tier += 1
-    return tier
+    """Hard preferences in tier_order (default: enough datasets > has code > no GPU needed).
+    Each earlier preference outweighs all later ones combined. Higher tier sorts first."""
+    met = {
+        "datasets": len(p.datasets) >= priorities.get("min_datasets", 2),
+        "code": priorities.get("code_first", True) and p.has_code,
+        "cpu": priorities.get("prefer_cpu", True) and p.needs_gpu is False,
+    }
+    order = priorities.get("tier_order", DEFAULT_TIER_ORDER)
+    return sum(2 ** (len(order) - 1 - i) for i, name in enumerate(order) if met.get(name))
 
 
 DEFAULT_WEIGHTS = {"relevance": 0.35, "recruiter": 0.35, "similarity": 0.3, "preference": 0.0}

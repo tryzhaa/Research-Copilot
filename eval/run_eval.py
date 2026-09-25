@@ -67,7 +67,7 @@ def strategies(prefs: dict, with_preference: bool) -> dict[str, Callable[[Cands]
     pr = prefs.get("priorities", {})
     w = pr.get("weights", {})
     no_pref = pr | {"weights": w | {"preference": 0.0}}
-    original = pr | {"min_relevance": 0, "weights": {"relevance": 0.5, "recruiter": 0.5, "similarity": 0.0, "preference": 0.0}}
+    original = pr | {"min_relevance": 0, "tier_order": ["code", "datasets", "cpu"], "weights": {"relevance": 0.5, "recruiter": 0.5, "similarity": 0.0, "preference": 0.0}}
     out: dict[str, Callable[[Cands], Cands]] = {
         "random": lambda cs: cs,  # scored as an expectation over shuffles, see run()
         "source order (code first)": lambda cs: sorted(cs, key=lambda c: (not c["code_url"], c["pos"])),

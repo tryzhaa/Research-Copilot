@@ -40,11 +40,15 @@ def test_filters() -> None:
     assert apply_filters([paper("good", year=2021, citations=50)], FILTERS, {"require_code": True}) == []
 
 
-def test_priority_tiers_order_code_then_datasets_then_cpu() -> None:
+def test_priority_tiers_default_to_datasets_then_code_then_cpu() -> None:
     pr = {"code_first": True, "min_datasets": 2, "prefer_cpu": True}
-    assert priority_tier(paper("a", code_url="x"), pr) == 4
-    assert priority_tier(paper("b", datasets=["MNIST", "CIFAR-10"], needs_gpu=False), pr) == 3
-    assert priority_tier(paper("c", needs_gpu=None), pr) == 0  # unknown GPU need isn't rewarded
+    two_datasets = paper("a", datasets=["MNIST", "CIFAR-10"])
+    code_and_cpu = paper("b", code_url="x", needs_gpu=False)
+    assert priority_tier(two_datasets, pr) == 4
+    assert priority_tier(code_and_cpu, pr) == 3  # code + CPU together still rank below datasets
+    assert priority_tier(paper("c", datasets=["MNIST"], needs_gpu=None), pr) == 0  # 1 dataset, unknown GPU
+    old = pr | {"tier_order": ["code", "datasets", "cpu"]}
+    assert priority_tier(code_and_cpu, old) == 5 and priority_tier(two_datasets, old) == 2
 
 
 ATOM = """<?xml version="1.0" encoding="UTF-8"?>
