@@ -160,7 +160,7 @@ def is_relevant(p: Paper, priorities: dict, sim_range: tuple[float, float]) -> b
 
 
 def prioritize(papers: list[Paper], priorities: dict) -> list[Paper]:
-    """Relevant papers first. Among them: code > datasets > CPU tiers, then the blended score.
+    """Relevant papers first. Among them: the tier_order tiers, then the blended score.
     Tiers never lift an off-topic paper above an on-topic one (set min_relevance: 0 to allow it)."""
     rng = similarity_range(papers)
 

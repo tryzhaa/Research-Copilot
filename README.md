@@ -15,7 +15,8 @@ pipeline actually puts the papers you like first.
 
 ```mermaid
 flowchart LR
-    Q[query + interests] --> F[fetch 4 sources<br/>in parallel]
+    Q[query] --> W[LLM rewrite<br/>keywords + intent]
+    W --> F[fetch 4 sources<br/>in parallel]
     F --> D[dedupe · filters<br/>attach code links]
     D --> E[embed<br/>bge-small, cached]
     E --> S[similarity<br/>shortlist]
@@ -27,18 +28,20 @@ flowchart LR
     L -. timeout / error .-> B
 ```
 
-1. **Retrieve.** Four sources are queried concurrently, merged across arXiv IDs, DOIs and titles,
+1. **Retrieve.** An LLM first rewrites the query into 1-5 source keywords (abbreviations expanded,
+   filler dropped) and a sentence of intent that drives similarity and ranking. Four sources are
+   queried concurrently with the keywords, merged across arXiv IDs, DOIs and titles,
    and hard-filtered (year, keywords, citations). Code links come from the live Hugging Face
    Papers API and a local SQLite index of the Papers with Code archive.
 2. **Embed.** Title + abstract go through `BAAI/bge-small-en-v1.5` (fastembed/ONNX, CPU). Vectors
    are cached in SQLite by paper and text hash, so repeat searches only embed what's new.
 3. **Shortlist.** Cosine similarity to the query plus the user's interests picks which candidates
-   the LLM reads (papers with code first).
+   the LLM reads.
 4. **Rerank.** An LLM scores the shortlist for relevance, extracts named datasets and judges GPU
    need. Hosted open models (Groq, Cerebras, Gemini, OpenRouter) take a few seconds; local
    Ollama and Claude are also supported.
-5. **Blend.** Hard tiers (code, datasets, CPU) first, then a configurable weighted mean of the
-   signals each paper has. When the LLM times out or fails, its signals drop out and results
+5. **Blend.** Among papers relevant enough (`min_relevance`), hard tiers (datasets, code, CPU by
+   default) come first, then a configurable weighted mean of the signals each paper has. When the LLM times out or fails, its signals drop out and results
    fall back to similarity instead of arriving unranked.
 
 ## Evaluation
@@ -80,7 +83,7 @@ memorize them. It enters the blend at `weights.preference: 0` until the evaluati
 
 ## Engineering
 
-- `mypy` with `disallow_untyped_defs`, 58 `pytest` tests (77% coverage of `copilot/`),
+- `mypy` with `disallow_untyped_defs`, 66 `pytest` tests (78% coverage of `copilot/`),
   mocked HTTP for every source and the LLM client.
 - Typed errors (`SourceFetchError`, `RankingTimeoutError`, ...) reach the UI per source:
   which source failed and why (timeout, rate limit, network).

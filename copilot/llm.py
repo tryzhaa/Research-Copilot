@@ -15,7 +15,6 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
