@@ -4,10 +4,20 @@
 #   ollama    — free, open-weight, runs on this Mac. Get a model with `ollama pull qwen3:4b`.
 #               Bigger = better but needs more RAM: qwen3:8b wants ~16 GB, qwen3:14b ~24 GB.
 #   anthropic — Claude via the API (paid, needs ANTHROPIC_API_KEY), e.g. model: claude-opus-5-5
-provider: ollama
-model: qwen3:4b
+#   Hosted open models, fast and with free tiers. Put each key in .env (git-ignored), e.g. GROQ_API_KEY=gsk_...:
+#     groq       (GROQ_API_KEY)       e.g. openai/gpt-oss-120b, llama-3.3-70b-versatile — console.groq.com
+#     cerebras   (CEREBRAS_API_KEY)   e.g. gpt-oss-120b — cloud.cerebras.ai
+#     gemini     (GEMINI_API_KEY)     e.g. gemini-2.5-flash — aistudio.google.com
+#     openrouter (OPENROUTER_API_KEY) hundreds of models, some free — openrouter.ai
+#     together   (TOGETHER_API_KEY), openai (OPENAI_API_KEY)
+#   Model names change; check the provider's model list if one is rejected.
+provider: groq
+model: openai/gpt-oss-120b
+# provider: ollama
+# model: qwen3:4b
 effort: medium                # low | medium | high. On ollama, high turns on the model's thinking: better, much slower.
-context_tokens: 8192          # ollama only: how much text the model reads at once. More needs more RAM.
+context_tokens: 16000         # how much paper text the model reads when summarizing. On ollama, more needs more RAM
+                              # (use 8192 on an 8 GB Mac); on free hosted tiers, too much hits per-minute token limits.
 
 # Which fields to search, and where. Toggle them on/off in the UI too.
 fields:

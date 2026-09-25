@@ -1,25 +1,51 @@
 """Model calls: rank candidates against your interests, and summarize one paper in your template.
 
-Two providers, picked by `provider` in preferences.yaml:
-  ollama    — free, open-weight models running locally (default)
+Providers, picked by `provider` in preferences.yaml:
+  ollama    — free, open-weight models running locally
   anthropic — Claude via the API (paid)
+  groq, cerebras, openrouter, gemini, together, openai — hosted models over the
+              OpenAI-compatible chat API (see OPENAI_COMPATIBLE)
 """
 import base64
 import io
+import json
 import logging
 import os
 import re
 import time
+from pathlib import Path
 
 import httpx
 from pydantic import BaseModel
 
 from .models import Paper
 
+
+def _load_dotenv() -> None:
+    """API keys from a git-ignored .env (KEY=value per line). Real env vars win."""
+    path = Path(__file__).resolve().parent.parent / ".env"
+    if path.exists():
+        for line in path.read_text().splitlines():
+            name, sep, value = line.partition("=")
+            if sep and not name.strip().startswith("#"):
+                os.environ.setdefault(name.strip(), value.strip().strip("\"'"))
+
+
+_load_dotenv()
 MAX_PDF_BYTES = 25 * 1024 * 1024
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 log = logging.getLogger("uvicorn.error")
 RANK_BATCH = 8  # small local models rank more reliably, and fit their context, a few papers at a time
+
+# provider → (base URL, env var holding the API key). `base_url` / `api_key_env` in prefs override these.
+OPENAI_COMPATIBLE = {
+    "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+    "cerebras": ("https://api.cerebras.ai/v1", "CEREBRAS_API_KEY"),
+    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY"),
+    "together": ("https://api.together.xyz/v1", "TOGETHER_API_KEY"),
+    "openai": ("https://api.openai.com/v1", "OPENAI_API_KEY"),
+}
 
 RANK_SYSTEM = (
     "You are a research assistant helping one person pick papers to implement in code for their portfolio. "
@@ -139,8 +165,11 @@ def _fetch_pdf(url: str) -> bytes | None:
 def rank(papers: list[Paper], query: str, prefs: dict, liked: list[str], disliked: list[str]) -> list[Paper]:
     if not papers:
         return []
-    if prefs.get("provider", "ollama") == "anthropic":
+    provider = prefs.get("provider", "ollama")
+    if provider == "anthropic":
         _rank_claude(papers, query, prefs, liked, disliked)
+    elif provider != "ollama":
+        _rank_openai(papers, query, prefs, liked, disliked)
     else:
         for start in range(0, len(papers), RANK_BATCH):
             _rank_ollama(papers[start:start + RANK_BATCH], query, prefs, liked, disliked)
@@ -150,8 +179,11 @@ def rank(papers: list[Paper], query: str, prefs: dict, liked: list[str], dislike
 def summarize(paper: Paper, prefs: dict, template: str) -> tuple[str, bool]:
     """Returns (markdown summary, used_full_text)."""
     pdf = _fetch_pdf(paper.pdf_url) if paper.pdf_url else None
-    if prefs.get("provider", "ollama") == "anthropic":
+    provider = prefs.get("provider", "ollama")
+    if provider == "anthropic":
         return _summarize_claude(paper, prefs, template, pdf)
+    if provider != "ollama":
+        return _summarize_openai(paper, prefs, template, pdf)
     return _summarize_ollama(paper, prefs, template, pdf)
 
 
@@ -218,7 +250,8 @@ def _pdf_text(pdf: bytes, max_chars: int) -> str:
     return "".join(out).strip()
 
 
-def _summarize_ollama(paper: Paper, prefs: dict, template: str, pdf: bytes | None) -> tuple[str, bool]:
+def _text_summary_prompt(paper: Paper, prefs: dict, template: str, pdf: bytes | None) -> tuple[str, bool]:
+    """Summary prompt with the PDF as extracted text, for models that can't read PDFs directly."""
     # ~4 chars per token; leave room for the template, instructions and the answer.
     budget = max(4000, (prefs.get("context_tokens", 8192) - 4000) * 4)
     text = ""
@@ -231,7 +264,69 @@ def _summarize_ollama(paper: Paper, prefs: dict, template: str, pdf: bytes | Non
     prompt = _summary_request(paper, prefs, template, has_full_text)
     if has_full_text:
         prompt = f"Full text of the paper:\n<paper>\n{text}\n</paper>\n\n{prompt}"
+    return prompt, has_full_text
+
+
+def _summarize_ollama(paper: Paper, prefs: dict, template: str, pdf: bytes | None) -> tuple[str, bool]:
+    prompt, has_full_text = _text_summary_prompt(paper, prefs, template, pdf)
     return _ollama_chat(prefs, SUMMARY_SYSTEM, prompt, max_tokens=3000), has_full_text
+
+
+# ---------- hosted open models (OpenAI-compatible APIs: Groq, Cerebras, OpenRouter, ...) ----------
+
+def _openai_chat(prefs: dict, system: str, user: str, max_tokens: int, json_mode: bool = False) -> str:
+    provider = prefs["provider"]
+    base_url, key_env = OPENAI_COMPATIBLE.get(provider, (None, None))
+    base_url, key_env = prefs.get("base_url", base_url), prefs.get("api_key_env", key_env)
+    if not base_url or not key_env:
+        raise RuntimeError(f"Unknown provider {provider!r}. Use ollama, anthropic, {', '.join(OPENAI_COMPATIBLE)}, "
+                           "or set base_url and api_key_env in preferences.yaml.")
+    key = os.getenv(key_env)
+    if not key:
+        raise RuntimeError(f"Set {key_env} to use {provider}: `export {key_env}=...` before starting the app.")
+    body = {
+        "model": prefs["model"],
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "temperature": 0.2,
+        "max_tokens": max_tokens,  # reasoning models spend part of this thinking, so it's generous
+    }
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
+    try:
+        r = httpx.post(f"{base_url.rstrip('/')}/chat/completions", json=body,
+                       headers={"Authorization": f"Bearer {key}"}, timeout=httpx.Timeout(180, connect=10))
+    except httpx.TimeoutException:
+        raise RuntimeError(f"{provider} didn't answer within 3 minutes.")
+    if r.status_code == 429:
+        wait = r.headers.get("retry-after")
+        raise RuntimeError(f"{provider} rate limit hit{f' (retry in {wait}s)' if wait else ''}. "
+                           "Wait a moment, or lower rank_at_most / context_tokens.")
+    if r.status_code == 413:
+        raise RuntimeError(f"Request too large for {provider}'s limits. Lower context_tokens in preferences.yaml.")
+    if r.status_code >= 400:
+        raise RuntimeError(f"{provider} returned {r.status_code}: {r.text[:300]}")
+    choice = r.json()["choices"][0]
+    content = re.sub(r"<think>.*?(</think>|$)", "", choice["message"].get("content") or "", flags=re.S).strip()
+    if not content:
+        raise RuntimeError(f"{prefs['model']} returned nothing.")
+    if json_mode and choice.get("finish_reason") == "length":
+        raise RuntimeError(f"{prefs['model']} ran out of room before finishing its answer.")
+    return content
+
+
+def _rank_openai(papers: list[Paper], query: str, prefs: dict, liked: list[str], disliked: list[str]) -> None:
+    system = (f"{RANK_SYSTEM}\n\nReply with only a JSON object matching this JSON schema:\n"
+              f"{json.dumps(Ranking.model_json_schema())}")
+    prompt = _rank_prompt(papers, query, prefs, liked, disliked, abstract_chars=1200)
+    t0 = time.monotonic()
+    raw = _openai_chat(prefs, system, prompt, max_tokens=300 * len(papers) + 2000, json_mode=True)
+    log.info("ranked %d papers in %.1fs", len(papers), time.monotonic() - t0)
+    _apply_scores(papers, Ranking.model_validate_json(raw[raw.find("{"):raw.rfind("}") + 1]))
+
+
+def _summarize_openai(paper: Paper, prefs: dict, template: str, pdf: bytes | None) -> tuple[str, bool]:
+    prompt, has_full_text = _text_summary_prompt(paper, prefs, template, pdf)
+    return _openai_chat(prefs, SUMMARY_SYSTEM, prompt, max_tokens=8000), has_full_text
 
 
 # ---------- anthropic (Claude API) ----------
