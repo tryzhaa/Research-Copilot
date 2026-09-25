@@ -1,0 +1,11 @@
+timestamp,commit,labels,searches,strategy,p@5,p@10,ndcg@10,mrr
+2026-09-25T20:04:05,c26e7a8-dirty,56,11,random,0.4319,0.2917,0.8551,0.8272
+2026-09-25T20:04:05,c26e7a8-dirty,56,11,source order (code first),0.4182,0.2909,0.8803,0.8788
+2026-09-25T20:04:05,c26e7a8-dirty,56,11,recency,0.4727,0.2909,0.8908,0.8636
+2026-09-25T20:04:05,c26e7a8-dirty,56,11,citations,0.4000,0.3000,0.8354,0.7909
+2026-09-25T20:04:05,c26e7a8-dirty,56,11,similarity only,0.3818,0.2909,0.8354,0.7803
+2026-09-25T20:04:05,c26e7a8-dirty,56,11,LLM relevance only,0.4909,0.3000,0.9216,0.8939
+2026-09-25T20:04:05,c26e7a8-dirty,56,11,original heuristic (tiers + 50/50 LLM),0.4727,0.3000,0.9394,0.9242
+2026-09-25T20:04:05,c26e7a8-dirty,56,11,current pipeline (similarity + LLM),0.4545,0.2909,0.9207,0.9242
+2026-09-25T20:04:05,c26e7a8-dirty,56,11,preference model only,0.4727,0.3000,0.9063,0.8864
+2026-09-25T20:04:05,c26e7a8-dirty,56,11,current pipeline + preference (0.15),0.4545,0.2909,0.9207,0.9242

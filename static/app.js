@@ -5,6 +5,8 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const papers = new Map();   // key -> paper, for every row on screen
 let libEntries = [];
 let libFilter = "all";
+let libFolder = null;       // library filtered to one folder, or null for any
+let allFolders = [];        // [{name, count}], for the folder picker and library filters
 let modelName = "the model";
 
 const store = {
@@ -103,17 +105,83 @@ function row(p, entry = null) {
         <button data-act="similar">similar</button>
         <button data-act="bib">bibtex</button>
         <button data-act="save" class="${p.saved ? "on" : ""}">${p.saved ? "saved" : "save"}</button>
+        <button data-act="folder" class="${p.folders?.length ? "on" : ""}">${folderLabel(p)}</button>
         <span class="rate">
           <button data-act="up" class="${p.rating > 0 ? "on" : ""}" aria-label="More like this" title="More like this">+</button>
           <button data-act="down" class="${p.rating < 0 ? "on" : ""}" aria-label="Less like this" title="Less like this">−</button>
         </span>
         ${entry ? `<button data-act="remove">remove</button>` : ""}
       </div>
+      <div class="folder-picker" hidden></div>
       <div class="similar-box" hidden></div>
       <div class="summary" hidden ${hasSummary ? `data-summary='${esc(JSON.stringify({ summary: entry.summary, full_text: entry.full_text }))}'` : ""}></div>
     </div>
   </li>`;
 }
+
+// ---------- folders ----------
+
+const folderLabel = p => !p.folders?.length ? "folder"
+  : p.folders.length === 1 ? `in ${esc(p.folders[0])}` : `in ${p.folders.length} folders`;
+
+function renderPicker(li, p) {
+  const box = $(".folder-picker", li);
+  const mine = new Set(p.folders || []);
+  const names = [...new Set([...allFolders.map(f => f.name), ...mine])];
+  box.innerHTML = `
+    ${names.map(n => `<button data-act="folder-toggle" data-folder="${esc(n)}" class="${mine.has(n) ? "on" : ""}">${esc(n)}</button>`).join("")}
+    <input class="new-folder" placeholder="${names.length ? "new folder…" : "name a folder…"}" maxlength="60" aria-label="New folder name">`;
+}
+
+async function setFolder(li, p, folder, add) {
+  const d = await api("/api/folder", { paper: p, folder, add });
+  p.folders = d.folders;
+  p.saved = d.saved;
+  allFolders = d.all;
+  const btn = $('[data-act="folder"]', li);
+  btn.innerHTML = folderLabel(p);
+  btn.classList.toggle("on", p.folders.length > 0);
+  const save = $('[data-act="save"]', li);
+  save.classList.toggle("on", p.saved);
+  save.textContent = p.saved ? "saved" : "save";
+  renderPicker(li, p);
+  // Update the library in place: re-rendering it would close the picker mid-use.
+  const en = libEntries.find(x => x.key === p.key);
+  if (en) Object.assign(en, { folders: d.folders, saved: d.saved });
+  else refreshLibCount();
+  if (!$("#view-library").hidden) renderFolderFilters();
+}
+
+document.addEventListener("keydown", async e => {
+  if (e.key !== "Enter" || !e.target.matches(".new-folder")) return;
+  e.preventDefault();
+  const name = e.target.value.trim();
+  const li = e.target.closest(".paper");
+  if (!name || !li) return;
+  try {
+    await setFolder(li, papers.get(li.dataset.key), name, true);
+    $(".new-folder", li)?.focus();
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+function renderFolderFilters() {
+  const box = $("#lib-folders");
+  if (libFolder && !allFolders.some(f => f.name === libFolder)) libFolder = null;  // emptied folder
+  box.hidden = !allFolders.length;
+  box.innerHTML = `<span class="label">folders</span>`
+    + `<button data-folder="" class="${libFolder ? "" : "on"}">any</button>`
+    + allFolders.map(f => `<button data-folder="${esc(f.name)}" class="${libFolder === f.name ? "on" : ""}">${esc(f.name)} <span>${f.count}</span></button>`).join("");
+}
+
+$("#lib-folders").addEventListener("click", e => {
+  const b = e.target.closest("[data-folder]");
+  if (!b) return;
+  libFolder = b.dataset.folder || null;
+  renderFolderFilters();
+  renderLibrary();
+});
 
 // ---------- similar papers (from the embedding graph) ----------
 
@@ -330,6 +398,17 @@ document.addEventListener("click", async e => {
     switch (btn.dataset.act) {
       case "summarize": return summarizeRow(li, p);
       case "similar": return similarRow(li, p);
+      case "folder": {
+        const box = $(".folder-picker", li);
+        box.hidden = !box.hidden;
+        if (!box.hidden) {
+          renderPicker(li, p);
+          $(".new-folder", box).focus();
+        }
+        return;
+      }
+      case "folder-toggle":
+        return setFolder(li, p, btn.dataset.folder, !(p.folders || []).includes(btn.dataset.folder));
       case "regen": return summarizeRow(li, p, true);
       case "bib":
         await navigator.clipboard.writeText(p.bibtex);
@@ -416,14 +495,18 @@ function renderLibrary() {
     liked: en => en.rating > 0,
     summarized: en => en.summary,
   }[libFilter];
-  const list = libEntries.filter(keep);
+  const list = libEntries.filter(en => keep(en) && (!libFolder || (en.folders || []).includes(libFolder)));
   $("#library").innerHTML = list.length
-    ? list.map(en => row({ ...en.paper, key: en.key, rating: en.rating, saved: en.saved, bibtex: en.bibtex }, en)).join("")
+    ? list.map(en => row({ ...en.paper, key: en.key, rating: en.rating, saved: en.saved, folders: en.folders || [], bibtex: en.bibtex }, en)).join("")
     : `<li class="empty">nothing here yet. save, rate or summarize a paper and it lands here.</li>`;
+  return list;
 }
 
 async function loadLibrary() {
-  libEntries = (await api("/api/library")).entries;
+  [libEntries, allFolders] = await Promise.all([
+    api("/api/library").then(d => d.entries), api("/api/folders").then(d => d.folders),
+  ]);
+  renderFolderFilters();
   renderLibrary();
   $("#lib-count").textContent = libEntries.length || "";
 }
@@ -445,11 +528,13 @@ $("#lib-filter").addEventListener("click", e => {
 });
 
 $("#export-bib").addEventListener("click", () => {
-  const bib = libEntries.map(en => en.bibtex).join("\n\n");
+  // exports what's listed: the current filter and folder
+  const keys = new Set($$("#library .paper").map(li => li.dataset.key));
+  const bib = libEntries.filter(en => keys.has(en.key)).map(en => en.bibtex).join("\n\n");
   if (!bib) return;
   const a = Object.assign(document.createElement("a"), {
     href: URL.createObjectURL(new Blob([bib], { type: "application/x-bibtex" })),
-    download: "library.bib",
+    download: `${(libFolder || "library").replace(/[^\w-]+/g, "-")}.bib`,
   });
   a.click();
   URL.revokeObjectURL(a.href);
@@ -483,6 +568,7 @@ $$("nav button").forEach(b => b.addEventListener("click", () => showView(b.datas
       $("#" + id).addEventListener("change", e => store.set(id, e.target.checked));
     }
     modelName = prefs.model;
+    allFolders = (await api("/api/folders")).folders;
     $("#foot").textContent = `${prefs.model} via ${prefs.provider} · ${prefs.effort} effort · settings live in preferences.yaml`;
     refreshLibCount();
   } catch (err) {

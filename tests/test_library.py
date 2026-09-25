@@ -33,3 +33,23 @@ def test_snapshot_round_trip_records_what_each_stage_saw(tmp_path: Path) -> None
     a, b = s["candidates"]
     assert a["shortlisted"] and a["score"] == 7.0
     assert not b["shortlisted"] and b["score"] is None and b["similarity"] == 0.4
+
+
+def test_folders_hold_papers_and_saving_to_one_saves_the_paper() -> None:
+    a, b = paper("A", doi="10.1/a"), paper("B", doi="10.1/b")
+    e = library.set_folder(a, "  Topology   ideas ", add=True)
+    assert e["folders"] == ["Topology ideas"] and e["saved"]
+    library.set_folder(a, "art", add=True)
+    library.set_folder(a, "art", add=True)  # adding twice doesn't duplicate
+    library.set_folder(b, "art", add=True)
+    assert library.get(a.key)["folders"] == ["art", "Topology ideas"]
+    assert library.folders() == [{"name": "art", "count": 2}, {"name": "Topology ideas", "count": 1}]
+    library.set_folder(a, "Topology ideas", add=False)
+    assert library.folders() == [{"name": "art", "count": 2}]  # an emptied folder disappears
+    library.upsert(a, rating=1)
+    assert library.get(a.key)["folders"] == ["art"]  # other updates keep folders
+
+
+def test_folder_name_must_not_be_blank() -> None:
+    with pytest.raises(ValueError):
+        library.set_folder(paper("A"), "   ", add=True)

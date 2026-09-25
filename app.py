@@ -44,6 +44,7 @@ def serialize(p: Paper) -> dict:
         "bibtex": p.bibtex(),
         "rating": entry.get("rating", 0),
         "saved": entry.get("saved", False),
+        "folders": entry.get("folders", []),
     }
 
 
@@ -67,6 +68,12 @@ class RateIn(BaseModel):
 class SaveIn(BaseModel):
     paper: dict
     saved: bool
+
+
+class FolderIn(BaseModel):
+    paper: dict
+    folder: str
+    add: bool  # false = take it out of the folder
 
 
 class KeyIn(BaseModel):
@@ -209,6 +216,20 @@ def rate(body: RateIn) -> dict:
 def save(body: SaveIn) -> dict:
     library.upsert(to_paper(body.paper), saved=body.saved)
     return {"ok": True}
+
+
+@app.post("/api/folder")
+def folder(body: FolderIn) -> dict:
+    try:
+        entry = library.set_folder(to_paper(body.paper), body.folder, body.add)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"folders": entry["folders"], "saved": entry["saved"], "all": library.folders()}
+
+
+@app.get("/api/folders")
+def get_folders() -> dict:
+    return {"folders": library.folders()}
 
 
 @app.get("/api/library")

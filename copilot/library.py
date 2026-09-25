@@ -31,18 +31,53 @@ def get(key: str) -> dict | None:
         return _load().get(key)
 
 
+def _entry(data: dict, paper: Paper, now: float) -> dict:
+    entry: dict = data.get(paper.key) or {
+        "key": paper.key, "rating": 0, "saved": False, "summary": "", "full_text": False, "added": now,
+    }
+    entry.setdefault("folders", [])
+    entry["paper"] = paper.to_dict()
+    return entry
+
+
 def upsert(paper: Paper, **changes: object) -> dict:
     with _lock:
         data = _load()
         now = time.time()
-        entry = data.get(paper.key) or {
-            "key": paper.key, "rating": 0, "saved": False, "summary": "", "full_text": False, "added": now,
-        }
-        entry["paper"] = paper.to_dict()
+        entry = _entry(data, paper, now)
         entry.update(changes, updated=now)
         data[paper.key] = entry
         _save(data)
         return entry
+
+
+def set_folder(paper: Paper, folder: str, add: bool) -> dict:
+    """Put a paper in a folder (which also saves it) or take it out. A paper can be in several;
+    a folder exists while it holds at least one paper."""
+    folder = " ".join(folder.split())[:60]
+    if not folder:
+        raise ValueError("folder name is empty")
+    with _lock:
+        data = _load()
+        now = time.time()
+        entry = _entry(data, paper, now)
+        folders = [f for f in entry["folders"] if f != folder]
+        if add:
+            folders.append(folder)
+            entry["saved"] = True
+        entry.update(folders=sorted(folders, key=str.lower), updated=now)
+        data[paper.key] = entry
+        _save(data)
+        return entry
+
+
+def folders() -> list[dict]:
+    """Every folder with how many papers it holds, alphabetically."""
+    counts: dict[str, int] = {}
+    for e in entries():
+        for f in e.get("folders", []):
+            counts[f] = counts.get(f, 0) + 1
+    return [{"name": f, "count": counts[f]} for f in sorted(counts, key=str.lower)]
 
 
 def remove(key: str) -> None:
