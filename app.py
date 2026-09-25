@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from copilot import library, pwc
+from copilot.errors import RankingError
 from copilot.llm import rank, summarize
 from copilot.models import Paper
 from copilot.prefs import load_prefs
@@ -92,14 +93,15 @@ def search(body: SearchIn) -> dict:
     if not body.query.strip() or not field_keys:
         raise HTTPException(400, "Enter a query and pick at least one field.")
     priorities = prefs.get("priorities", {}) | ({"require_code": True} if body.code_only else {})
-    papers, errors = search_all(body.query.strip(), prefs | {"priorities": priorities}, field_keys, body.use_s2)
+    papers, source_errors = search_all(body.query.strip(), prefs | {"priorities": priorities}, field_keys, body.use_s2)
+    errors = [e.to_dict() for e in source_errors]
     candidates = len(papers)
     papers = shortlist(papers, prefs.get("rank_at_most", 24), priorities)
     liked, disliked = library.rated_titles()
     try:
         papers = rank(papers, body.query, prefs, liked, disliked)
     except Exception as e:
-        errors.append(f"Ranking failed, showing unranked results: {e}")
+        errors.append(RankingError(f"ranking failed, showing unranked results: {e}").to_dict())
     papers = prioritize(papers, priorities)
     return {
         "candidates": candidates,

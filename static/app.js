@@ -189,6 +189,11 @@ document.addEventListener("click", async e => {
 
 // ---------- search ----------
 
+const ERROR_LABELS = { timeout: "timed out", rate_limit: "rate limited", network: "offline", http_error: "server error", bad_response: "bad response" };
+
+const errorRow = e => `<li class="err-${esc(e.error_type)}"><b>${esc(e.source)}${e.field ? ` · ${esc(e.field)}` : ""}</b> `
+  + `${esc(ERROR_LABELS[e.error_type] || e.error_type.replace("_", " "))} — ${esc(e.message)}</li>`;
+
 const selectedFields = () => $$("#fields input:checked").map(i => i.value);
 let searching = false;
 
@@ -210,7 +215,7 @@ $("#search-form").addEventListener("submit", async e => {
     setStatus(data.papers.length
       ? `${data.candidates} candidates · ${data.with_code} with code · showing the top ${data.papers.length}${index}`
       : "nothing matched. try broader words, another field, or turn off code only");
-    $("#errors").innerHTML = data.errors.map(m => `<li>${esc(m)}</li>`).join("");
+    $("#errors").innerHTML = data.errors.map(errorRow).join("");
     $("#results").innerHTML = data.papers.map(p => row(p)).join("");
   } catch (err) {
     stop();

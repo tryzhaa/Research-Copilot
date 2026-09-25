@@ -5,11 +5,12 @@ from functools import partial
 from itertools import zip_longest
 
 from . import pwc
+from .errors import SourceFetchError
 from .models import Paper
 from .sources import search_arxiv, search_hf_papers, search_openalex, search_semantic_scholar
 
 
-def search_all(query: str, prefs: dict, field_keys: list[str], use_s2: bool = False) -> tuple[list[Paper], list[str]]:
+def search_all(query: str, prefs: dict, field_keys: list[str], use_s2: bool = False) -> tuple[list[Paper], list[SourceFetchError]]:
     """Returns (papers, errors). A failing source is reported, not fatal."""
     n = prefs["candidates_per_source"]
     min_year = prefs["filters"]["min_year"]
@@ -26,14 +27,14 @@ def search_all(query: str, prefs: dict, field_keys: list[str], use_s2: bool = Fa
     jobs.insert(0, ("Hugging Face", hf_field, partial(search_hf_papers, query, n, hf_field)))
 
     results: list[list[Paper]] = []
-    errors: list[str] = []
+    errors: list[SourceFetchError] = []
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = [(name, key, pool.submit(fn)) for name, key, fn in jobs]
         for name, key, fut in futures:
             try:
                 results.append(fut.result())
             except Exception as e:
-                errors.append(f"{name} ({key}): {e}")
+                errors.append(SourceFetchError(name, key, e))
 
     # Round-robin across sources so list order roughly tracks each source's own relevance order.
     papers = [p for rank in zip_longest(*results) for p in rank if p is not None]
