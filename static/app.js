@@ -264,7 +264,7 @@ async function drawResultsGraph(keys) {
   // 960 px and up: a column beside the results that stays in view (see #view-search in the CSS).
   const beside = matchMedia("(min-width: 960px)").matches;
   resultsGraph = drawGraph($("#rg"), data, {
-    height: beside ? Math.max(300, Math.min(innerHeight - 260, 520)) : 300,
+    height: beside ? Math.max(300, Math.min(innerHeight - 200, 520)) : 300,
     big: d => d.on_screen,
     fill: (d, col) => d.on_screen ? col("--fg") : d.rating < 0 ? "none" : col("--faint"),
     onSelect: d => {

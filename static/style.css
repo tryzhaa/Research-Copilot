@@ -167,8 +167,14 @@ footer { padding-bottom: 32px; font: 12px var(--mono); color: var(--faint); }
   #view-search { display: grid; grid-template-columns: minmax(0, calc(var(--width) - 48px)) minmax(260px, 1fr); column-gap: 56px; }
   #view-search > * { grid-column: 1; }
   #view-search > .results-graph { grid-column: 2; grid-row: 1 / span 6; }
-  .rg-sticky { position: sticky; top: 24px; }
-  .results-graph .map-card { max-height: 42vh; overflow-y: auto; margin-top: 16px; }
+  /* A screen-tall sticky column. Equal rows above and below keep the graph itself at mid-screen
+     as you scroll; the note sits in the top row and a clicked paper's card in the bottom one. */
+  .rg-sticky {
+    position: sticky; top: 0; height: 100vh;
+    display: grid; grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+  .results-graph .map-note { margin: 0 0 12px; align-self: end; }
+  .results-graph .map-card { margin: 16px 0 0; align-self: start; max-height: 100%; overflow-y: auto; }
 }
 .paper.flash { animation: flash 1.4s ease-out; }
 @keyframes flash { from { background: rgba(236, 235, 230, 0.07); } to { background: transparent; } }
