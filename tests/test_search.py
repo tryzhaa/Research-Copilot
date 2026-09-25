@@ -96,3 +96,19 @@ def test_source_gives_up_after_retries(httpx_mock: HTTPXMock, monkeypatch: objec
     with pytest.raises(httpx.HTTPStatusError):
         sources.search_hf_papers("q", 5, "ml")
     assert len(httpx_mock.get_requests()) == 4
+
+
+def test_openalex_scopes_to_subfields_when_given(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(json={"results": []}, is_reusable=True)
+    sources.search_openalex("q", 12, 5, "art", 2015, [1213, 1210])
+    sources.search_openalex("q", 17, 5, "ml", 2015)
+    first, second = (r.url.params["filter"] for r in httpx_mock.get_requests())
+    assert first == "primary_topic.subfield.id:1213|1210,from_publication_date:2015-01-01"
+    assert second == "primary_topic.field.id:17,from_publication_date:2015-01-01"
+    assert sources.search_openalex("q", None, 5, "x", 2015) == []
+
+
+def test_semantic_scholar_accepts_several_fields(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(json={"data": []})
+    sources.search_semantic_scholar("q", ["Psychology", "Sociology"], 5, "social", 2015)
+    assert httpx_mock.get_requests()[0].url.params["fieldsOfStudy"] == "Psychology,Sociology"

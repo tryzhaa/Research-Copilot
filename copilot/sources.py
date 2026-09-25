@@ -88,12 +88,18 @@ def _openalex_abstract(inv: dict | None) -> str:
     return " ".join(w for _, w in words)
 
 
-def search_openalex(query: str, field_id: int | None, limit: int, field: str, min_year: int) -> list[Paper]:
-    if not field_id:
+def search_openalex(query: str, field_id: int | None, limit: int, field: str, min_year: int,
+                    subfields: list[int] | None = None) -> list[Paper]:
+    """Scoped to a whole OpenAlex field, or to specific subfields (which may span fields) when given."""
+    if subfields:
+        scope = "primary_topic.subfield.id:" + "|".join(map(str, subfields))
+    elif field_id:
+        scope = f"primary_topic.field.id:{field_id}"
+    else:
         return []
     params = {
         "search": query,
-        "filter": f"primary_topic.field.id:{field_id},from_publication_date:{min_year}-01-01",
+        "filter": f"{scope},from_publication_date:{min_year}-01-01",
         "per-page": limit,
     }
     if email := os.getenv("OPENALEX_EMAIL"):
@@ -119,7 +125,7 @@ def search_openalex(query: str, field_id: int | None, limit: int, field: str, mi
     return papers
 
 
-def search_semantic_scholar(query: str, s2_field: str | None, limit: int, field: str, min_year: int) -> list[Paper]:
+def search_semantic_scholar(query: str, s2_field: str | list[str] | None, limit: int, field: str, min_year: int) -> list[Paper]:
     """Optional: works without a key but is heavily rate-limited. Set S2_API_KEY for reliability."""
     if not s2_field:
         return []
@@ -128,7 +134,7 @@ def search_semantic_scholar(query: str, s2_field: str | None, limit: int, field:
         headers["x-api-key"] = key
     params = {
         "query": query,
-        "fieldsOfStudy": s2_field,
+        "fieldsOfStudy": s2_field if isinstance(s2_field, str) else ",".join(s2_field),
         "year": f"{min_year}-",
         "limit": limit,
         "fields": "title,abstract,authors,year,venue,externalIds,url,openAccessPdf,citationCount",

@@ -20,6 +20,8 @@ context_tokens: 16000         # how much paper text the model reads when summari
                               # (use 8192 on an 8 GB Mac); on free hosted tiers, too much hits per-minute token limits.
 
 # Which fields to search, and where. Toggle them on/off in the UI too.
+# openalex_field searches a whole OpenAlex field; openalex_subfields narrows to specific subfields
+# instead (they may come from different fields). IDs: https://api.openalex.org/fields/<id>
 fields:
   ml:
     label: Machine Learning
@@ -32,10 +34,28 @@ fields:
     openalex_field: 26 # Mathematics
     s2_field: Mathematics
   art:
-    label: Art
-    arxiv_categories: [] # little art scholarship on arXiv
-    openalex_field: 12 # Arts and Humanities
+    label: Art & Design       # visual art, painting, sketching, music, design
+    arxiv_categories: [cs.GR, cs.SD, eess.AS]  # graphics, sound, audio/music: the computational side
+    openalex_subfields:
+      - 1213                  # Visual Arts and Performing Arts
+      - 1210                  # Music
+      - 1704                  # Computer Graphics and Computer-Aided Design (where most design papers land)
+      - 1709                  # Human-Computer Interaction (design research, sketching tools)
     s2_field: Art
+  social:
+    label: Social Sciences    # psychology, sociology, geography
+    arxiv_categories: [physics.soc-ph, cs.CY, cs.SI]  # social physics, computers & society, social networks
+    openalex_subfields:
+      - 3200                  # General Psychology
+      - 3202                  # Applied Psychology
+      - 3203                  # Clinical Psychology
+      - 3204                  # Developmental and Educational Psychology
+      - 3205                  # Experimental and Cognitive Psychology
+      - 3206                  # Neuropsychology and Physiological Psychology
+      - 3207                  # Social Psychology
+      - 3312                  # Sociology and Political Science
+      - 3305                  # Geography, Planning and Development
+    s2_field: [Psychology, Sociology, Geography]
 
 # Hard filters applied before any LLM call.
 filters:

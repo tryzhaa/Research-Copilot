@@ -18,7 +18,8 @@ def search_all(query: str, prefs: dict, field_keys: list[str], use_s2: bool = Fa
     for key in field_keys:
         f = prefs["fields"][key]
         jobs.append(("arXiv", key, partial(search_arxiv, query, f.get("arxiv_categories", []), n, key)))
-        jobs.append(("OpenAlex", key, partial(search_openalex, query, f.get("openalex_field"), n, key, min_year)))
+        jobs.append(("OpenAlex", key, partial(search_openalex, query, f.get("openalex_field"), n, key, min_year,
+                                                     f.get("openalex_subfields"))))
         if use_s2:
             jobs.append(("Semantic Scholar", key, partial(search_semantic_scholar, query, f.get("s2_field"), n, key, min_year)))
 
