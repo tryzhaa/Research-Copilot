@@ -4,7 +4,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 
 const papers = new Map();   // key -> paper, for every row on screen
 let libEntries = [];
-let libFilter = "all";
+let libFilter = "saved";
 let libFolder = null;       // library filtered to one folder, or null for any
 let allFolders = [];        // [{name, count}], for the folder picker and library filters
 let modelName = "the model";
@@ -150,8 +150,10 @@ function togglePicker(li, p, open) {
 function syncLibrary(p, all) {
   allFolders = all;
   const en = libEntries.find(x => x.key === p.key);
-  if (en) Object.assign(en, { folders: p.folders, saved: p.saved });
-  else refreshLibCount();
+  if (en) {
+    Object.assign(en, { folders: p.folders, saved: p.saved });
+    showLibCount();
+  } else refreshLibCount();
   if (!$("#view-library").hidden) renderFolderFilters();
 }
 
@@ -512,8 +514,9 @@ $("#search-form").addEventListener("submit", async e => {
 // ---------- library ----------
 
 function renderLibrary() {
+  // Every rated paper is kept (ratings are the eval's and preference model's labels), but the
+  // library only lists what you chose to keep: saved, liked, or summarized.
   const keep = {
-    all: () => true,
     saved: en => en.saved,
     liked: en => en.rating > 0,
     summarized: en => en.summary,
@@ -521,7 +524,11 @@ function renderLibrary() {
   const list = libEntries.filter(en => keep(en) && (!libFolder || (en.folders || []).includes(libFolder)));
   $("#library").innerHTML = list.length
     ? list.map(en => row({ ...en.paper, key: en.key, rating: en.rating, saved: en.saved, folders: en.folders || [], bibtex: en.bibtex }, en)).join("")
-    : `<li class="empty">nothing here yet. save, rate or summarize a paper and it lands here.</li>`;
+    : `<li class="empty">${{
+        saved: "nothing saved yet. save a paper and it lands here.",
+        liked: "nothing liked yet. rate a paper + and it lands here.",
+        summarized: "no summaries yet. summarize a paper and it lands here.",
+      }[libFilter]}</li>`;
   return list;
 }
 
@@ -531,14 +538,16 @@ async function loadLibrary() {
   ]);
   renderFolderFilters();
   renderLibrary();
-  $("#lib-count").textContent = libEntries.length || "";
+  showLibCount();
 }
+
+const showLibCount = () => { $("#lib-count").textContent = libEntries.filter(en => en.saved).length || ""; };
 
 async function refreshLibCount() {
   try {
     const { entries } = await api("/api/library");
     libEntries = entries;
-    $("#lib-count").textContent = entries.length || "";
+    showLibCount();
   } catch {}
 }
 
