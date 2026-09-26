@@ -162,6 +162,12 @@ function row(p, entry = null, { trending = false, note = "" } = {}) {
   ].filter(Boolean).map(esc).join(" · ");
   const hasSummary = entry && entry.summary;
 
+  // Each dataset links to its homepage (Papers with Code catalogue), else a Hugging Face search.
+  // Papers saved before links existed have none, so they get the search.
+  const datasetLink = (p) => (name) => {
+    const url = (p.dataset_links && p.dataset_links[name]) || `https://huggingface.co/datasets?search=${encodeURIComponent(name)}`;
+    return `<a href="${esc(url)}" target="_blank" rel="noopener" title="${esc(url)}">${esc(name)}</a>`;
+  };
   // Signals behind the ranking. Lit = meets your priority, dim = doesn't, absent = unknown.
   const sig = (ok, text) => `<span class="${ok ? "ok" : "no"}">${text}</span>`;
   const codeBits = [p.code_official ? "official" : "", p.code_framework, p.stars ? `★${p.stars}` : ""].filter(Boolean).join(" · ");
@@ -170,7 +176,7 @@ function row(p, entry = null, { trending = false, note = "" } = {}) {
       ? sig(true, `<a href="${esc(p.code_url)}" target="_blank" rel="noopener">code ↗</a>${codeBits ? ` ${esc(codeBits)}` : ""}`)
       : sig(false, "no code"),
     p.datasets && p.datasets.length
-      ? sig(p.datasets.length >= 2, `${p.datasets.length} dataset${p.datasets.length > 1 ? "s" : ""}: ${esc(p.datasets.slice(0, 4).join(", "))}${p.datasets.length > 4 ? "…" : ""}`)
+      ? sig(p.datasets.length >= 2, `${p.datasets.length} dataset${p.datasets.length > 1 ? "s" : ""}: ${p.datasets.slice(0, 4).map(datasetLink(p)).join(", ")}${p.datasets.length > 4 ? "…" : ""}`)
       : (p.recruiter != null ? sig(false, "no named datasets") : ""),
     p.needs_gpu == null ? "" : sig(!p.needs_gpu, `${p.needs_gpu ? "needs gpu" : "cpu ok"}${p.compute_note ? ` · ${esc(p.compute_note)}` : ""}`),
     p.recruiter == null ? "" : sig(p.recruiter >= 7, `recruiter ${(+p.recruiter).toFixed(0)}/10`),

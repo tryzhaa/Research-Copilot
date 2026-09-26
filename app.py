@@ -77,6 +77,7 @@ def serialize(p: Paper) -> dict:
     return public(p.to_dict()) | {
         "key": p.key,
         "has_code": p.has_code,
+        "dataset_links": pwc.dataset_links(p.datasets),
         "bibtex": p.bibtex(),
         "rating": entry.get("rating", 0),
         "saved": entry.get("saved", False),

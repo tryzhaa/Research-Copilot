@@ -46,3 +46,25 @@ def test_attach_code_keeps_a_live_repo_unless_the_index_has_the_official_one(ind
     assert live.code_url == "https://github.com/live/repo"
     assert official.code_url == "https://github.com/twitter/sheaf" and official.code_official
     assert bare.code_url == "https://github.com/b/tf" and bare.code_framework == "tf"
+
+
+def test_datasets_link_to_their_homepage_else_a_hugging_face_search(index: Path) -> None:
+    db = sqlite3.connect(index)
+    db.execute("CREATE TABLE datasets (key TEXT PRIMARY KEY, name TEXT, homepage TEXT)")
+    db.executemany("INSERT INTO datasets VALUES (?, ?, ?)", [
+        ("qm9", "QM9", "http://quantum-machine.org/datasets/"),
+        ("zinc", "ZINC", "http://zinc15.docking.org/"),
+        ("cifar10", "CIFAR-10", ""),
+    ])
+    db.commit()
+    db.close()
+    links = pwc.dataset_links(["QM9", "ZINC250K", "CIFAR-10", "Made Up Set"])
+    assert links["QM9"] == "http://quantum-machine.org/datasets/"
+    assert links["ZINC250K"] == "http://zinc15.docking.org/"          # a size variant finds its base
+    assert links["CIFAR-10"] == "https://huggingface.co/datasets?search=CIFAR-10"  # no homepage
+    assert links["Made Up Set"] == "https://huggingface.co/datasets?search=Made%20Up%20Set"
+
+
+def test_an_index_built_before_datasets_still_gives_search_links(index: Path) -> None:
+    assert pwc.dataset_links(["QM9"]) == {"QM9": "https://huggingface.co/datasets?search=QM9"}
+    assert pwc.dataset_links([]) == {}
