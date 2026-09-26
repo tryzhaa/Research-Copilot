@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from copilot.preference_model import (STRUCTURED, can_train, clean_feature_rows, cross_validate, features, predict,
                                       save_model, structured_features, train_preference_model)
@@ -50,8 +51,9 @@ def test_structured_features_encode_signals_and_mark_unscored_papers() -> None:
     scored = {"score": 8.0, "recruiter": 6.0, "code_url": "https://github.com/x", "datasets": ["QM9", "ZINC"],
               "citations": 99, "needs_gpu": False}
     f = dict(zip(STRUCTURED, structured_features(scored)))
-    assert f["relevance"] == 0.8 and f["recruiter"] == 0.6 and f["llm_scored"] == 1.0 and f["has_code"] == 1.0
-    assert f["log_datasets"] == np.log1p(2) and f["log_citations"] == np.log1p(99) and f["needs_gpu"] == 0.0
+    # approx: math.log1p and np.log1p can differ in the last bit depending on the CPU (this failed in CI)
+    assert f == pytest.approx({"relevance": 0.8, "recruiter": 0.6, "llm_scored": 1.0, "has_code": 1.0,
+                               "log_datasets": np.log1p(2), "log_citations": np.log1p(99), "needs_gpu": 0.0})
     unscored = dict(zip(STRUCTURED, structured_features({"citations": None, "needs_gpu": None})))
     assert unscored == dict.fromkeys(STRUCTURED, 0.0)  # llm_scored = 0 says the LLM zeros aren't real
 
