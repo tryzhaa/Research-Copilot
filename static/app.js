@@ -62,7 +62,7 @@ function authorLine(authors = []) {
   return authors.length > 3 ? `${authors.slice(0, 3).join(", ")} et al.` : authors.join(", ");
 }
 
-function row(p, entry = null, { trending = false } = {}) {
+function row(p, entry = null, { trending = false, note = "" } = {}) {
   papers.set(p.key, p);
   // Ranked papers show their relevance score. Only the trending list shows upvotes there: search
   // results from Hugging Face carry upvotes too, and ▲ in a search or the library reads as "trending".
@@ -100,7 +100,7 @@ function row(p, entry = null, { trending = false } = {}) {
       <h2><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></h2>
       <p class="meta">${meta}</p>
       ${signals ? `<p class="signals">${signals}</p>` : ""}
-      ${p.reason ? `<p class="reason">${esc(p.reason)}</p>` : p.tldr ? `<p class="reason">${esc(p.tldr)}</p>` : ""}
+      ${note ? `<p class="reason">${esc(note)}</p>` : p.reason ? `<p class="reason">${esc(p.reason)}</p>` : p.tldr ? `<p class="reason">${esc(p.tldr)}</p>` : ""}
       ${p.recruiter_reason ? `<p class="reason recruiter"><span>recruiter</span> ${esc(p.recruiter_reason)}</p>` : ""}
       ${p.abstract ? `<details class="abstract"><summary>abstract</summary><p>${esc(p.abstract)}</p></details>` : ""}
       <div class="actions">
@@ -363,12 +363,67 @@ async function drawResultsGraph(keys) {
       const li = $(`#results .paper[data-key="${CSS.escape(d.key)}"]`);
       if (!li) return showCard($("#rg-card"), d);
       $("#rg-card").hidden = true;
-      li.scrollIntoView({ behavior: "smooth", block: "center" });
-      li.classList.remove("flash");
-      void li.offsetWidth;  // restart the animation
-      li.classList.add("flash");
+      flash(li);
     },
   });
+}
+
+function flash(li) {
+  li.scrollIntoView({ behavior: "smooth", block: "center" });
+  li.classList.remove("flash");
+  void li.offsetWidth;  // restart the animation
+  li.classList.add("flash");
+}
+
+// The map above the saved / liked lists: those papers, how they relate, and similar papers you
+// haven't rated yet, listed under the map with the usual buttons so you can like or save them.
+let libGraph = null, libGraphRun = 0;
+
+async function drawLibraryGraph(list) {
+  const wrap = $("#lib-graph"), run = ++libGraphRun;
+  libGraph = null;
+  $("#lg-card").hidden = true;
+  if (!window.d3 || !["saved", "liked"].includes(libFilter) || !list.length) return (wrap.hidden = true);
+  $("#lg-note").textContent = "mapping your papers…";
+  wrap.hidden = false;
+  let data;
+  try {
+    data = await api("/api/map", { keys: list.map(en => en.key), include_library: false,
+                                   limit: list.length + 40, related: 12 });
+  } catch (err) {
+    return ($("#lg-note").textContent = err.message);
+  }
+  if (run !== libGraphRun) return;  // the filter or folder changed while this was loading
+  const related = data.related || [];
+  $("#lg-note").textContent = `your ${libFilter} papers (bright) and the papers around them · `
+    + `lines join similar papers · hover a paper to find it · click a dot`;
+  if (data.nodes.length >= 2) {
+    libGraph = drawGraph($("#lg"), data, {
+      height: Math.max(320, Math.min(460, innerHeight - 300)),
+      big: d => d.on_screen,
+      fill: (d, col) => d.on_screen ? col("--fg") : d.rating < 0 ? "none" : col("--faint"),
+      onSelect: d => {
+        const sel = `.paper[data-key="${CSS.escape(d.key)}"]`;
+        const li = $(`#library ${sel}`) || $(`#lg-related ${sel}`);
+        if (!li) return showCard($("#lg-card"), d);
+        $("#lg-card").hidden = true;
+        flash(li);
+      },
+    });
+  } else {
+    $("#lg").innerHTML = "";
+  }
+  $("#lg-related").innerHTML = related.map(p => row(p, null, { note: `similar to “${p.via}”` })).join("");
+  $("#lg-related-count").textContent = related.length ? `· ${related.length}` : "";
+  $("#lg-related-box").hidden = !related.length;
+}
+
+for (const id of ["#library", "#lg-related"]) {
+  $(id).addEventListener("mouseover", e => {
+    const li = e.target.closest(".paper");
+    if (li && libGraph) libGraph.highlight(li.dataset.key);
+  });
+  $(id).addEventListener("mouseleave", () => libGraph?.highlight(null));
 }
 
 $("#results").addEventListener("mouseover", e => {
@@ -529,6 +584,7 @@ function renderLibrary() {
         liked: "nothing liked yet. rate a paper + and it lands here.",
         summarized: "no summaries yet. summarize a paper and it lands here.",
       }[libFilter]}</li>`;
+  drawLibraryGraph(list);
   return list;
 }
 

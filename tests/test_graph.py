@@ -69,3 +69,18 @@ def test_urls_are_rebuilt_for_old_snapshots() -> None:
     assert graph.paper_url("doi:10.1/x", {}) == "https://doi.org/10.1/x"
     assert graph.paper_url("title:x", {"title": "Neural Sheaf"}).endswith("q=Neural+Sheaf")
     assert graph.paper_url("arxiv:1", {"url": "https://kept"}) == "https://kept"
+
+
+def test_related_suggests_unrated_neighbours_of_the_focus_papers() -> None:
+    g = _graph()
+    found = graph.related(["k0", "k1"], exclude={"k2"}, n=3, g=g)
+    keys = [p["key"] for p in found]
+    assert len(keys) == 3 and not {"k0", "k1", "k2"} & set(keys)   # never the focus or excluded papers
+    assert all(k in {"k3", "k4", "k5", "k12"} for k in keys)        # topic A's neighbours, not topic B
+    assert [p["sim"] for p in found] == sorted((p["sim"] for p in found), reverse=True)
+    assert all(p["via"] in {"paper 0", "paper 1"} and p["title"] for p in found)
+
+
+def test_related_is_empty_when_nothing_is_linked() -> None:
+    g = _graph()
+    assert graph.related(["not-in-graph"], exclude=set(), g=g) == []

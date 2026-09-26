@@ -111,6 +111,7 @@ class MapIn(BaseModel):
     keys: list[str]               # papers on screen
     include_library: bool = True  # the map tab adds your library; the graph beside results doesn't
     limit: int = 250
+    related: int = 0              # also return this many similar papers you haven't rated or saved
 
 
 @app.get("/")
@@ -245,6 +246,11 @@ def paper_map(body: MapIn) -> dict:
     for n in data["nodes"]:
         n["rating"] = ratings.get(n["key"], 0)
         n["on_screen"] = n["key"] in body.keys
+    if body.related:
+        # The library's map lists these under it, as rows you can like or save.
+        known = {e["key"] for e in entries if e.get("rating") or e.get("saved")}
+        found = graph.related(body.keys, exclude=known, n=min(body.related, 30))
+        data["related"] = [serialize(Paper.from_dict(p)) | {"sim": p["sim"], "via": p["via"]} for p in found]
     return data
 
 

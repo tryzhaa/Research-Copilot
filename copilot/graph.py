@@ -178,3 +178,22 @@ def neighbourhood(focus: list[str], limit: int = 250, g: Graph | None = None) ->
         "total_papers": len(g.keys),
     }
 
+
+
+def related(focus: list[str], exclude: set[str], n: int = 12, g: Graph | None = None) -> list[dict]:
+    """The n papers outside `focus` most similar to any focus paper, skipping `exclude` (e.g. ones
+    you've rated). Each is the stored paper plus "sim" (its strongest link into the focus set) and
+    "via" (the title of the focus paper it's closest to)."""
+    g = g or current()
+    focus_idx = [g.index[k] for k in dict.fromkeys(focus) if k in g.index]
+    best: dict[int, tuple[float, int]] = {}
+    for i in focus_idx:
+        row = g.adj.getrow(i)
+        for j, w in zip(row.indices, row.data):
+            key = g.keys[j]
+            if key in exclude or key in focus:
+                continue
+            if w > best.get(int(j), (0.0, -1))[0]:
+                best[int(j)] = (float(w), i)
+    top = sorted(best.items(), key=lambda kv: -kv[1][0])[:n]
+    return [g.papers[j] | {"sim": round(w, 3), "via": g.papers[i]["title"]} for j, (w, i) in top]
