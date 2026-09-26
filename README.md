@@ -6,7 +6,7 @@
 (read-only, 5 searches an hour; the first visit after a quiet spell takes a moment to wake up, and a
 search takes ~40 s)
 
-Finds research papers across arXiv, OpenAlex, Hugging Face Papers and Semantic Scholar, and
+Finds research papers across arXiv, OpenAlex and Hugging Face Papers, and
 ranks them for one person: their standing interests, their past 👍/👎, and whether the paper
 has code, named datasets and a CPU-sized compute budget. Summaries follow a template that ends
 in a concrete build plan.

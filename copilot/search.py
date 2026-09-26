@@ -7,10 +7,10 @@ from itertools import zip_longest
 from . import pwc
 from .errors import SourceFetchError, SourceTimeout
 from .models import Paper
-from .sources import search_arxiv, search_hf_papers, search_openalex, search_semantic_scholar
+from .sources import search_arxiv, search_hf_papers, search_openalex
 
 
-def search_all(query: str, prefs: dict, field_keys: list[str], use_s2: bool = False) -> tuple[list[Paper], list[SourceFetchError]]:
+def search_all(query: str, prefs: dict, field_keys: list[str]) -> tuple[list[Paper], list[SourceFetchError]]:
     """Returns (papers, errors). A failing source is reported, not fatal."""
     n = prefs["candidates_per_source"]
     min_year = prefs["filters"]["min_year"]
@@ -20,8 +20,6 @@ def search_all(query: str, prefs: dict, field_keys: list[str], use_s2: bool = Fa
         jobs.append(("arXiv", key, partial(search_arxiv, query, f.get("arxiv_categories", []), n, key)))
         jobs.append(("OpenAlex", key, partial(search_openalex, query, f.get("openalex_field"), n, key, min_year,
                                                      f.get("openalex_subfields"))))
-        if use_s2:
-            jobs.append(("Semantic Scholar", key, partial(search_semantic_scholar, query, f.get("s2_field"), n, key, min_year)))
 
     # Hugging Face Papers (Papers with Code's successor) isn't split by field, so it runs once.
     hf_field = "ml" if "ml" in field_keys else field_keys[0]

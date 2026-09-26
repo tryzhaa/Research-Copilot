@@ -33,7 +33,6 @@ rewrite_timeout_seconds: 15 # ~1 s on Groq; a local ollama model may need 30+
 
 # Paper sources need no keys, but OpenAlex (most art and social-science papers) rate-limits anonymous
 # searches hard. A free key from openalex.org fixes that: add OPENALEX_API_KEY=... to .env.
-# Semantic Scholar likewise takes S2_API_KEY.
 
 # Which fields to search, and where. Toggle them on/off in the UI too.
 # openalex_field searches a whole OpenAlex field; openalex_subfields narrows to specific subfields
@@ -43,12 +42,10 @@ fields:
     label: Machine Learning
     arxiv_categories: [cs.LG, cs.AI, cs.CL, cs.CV, stat.ML]
     openalex_field: 17 # Computer Science
-    s2_field: Computer Science
   math:
     label: Mathematics
     arxiv_categories: [math.*]
     openalex_field: 26 # Mathematics
-    s2_field: Mathematics
   art:
     label: Art & Design # visual art, painting, sketching, music, design
     arxiv_categories: [cs.GR, cs.SD, eess.AS] # graphics, sound, audio/music: the computational side
@@ -57,7 +54,6 @@ fields:
       - 1210 # Music
       - 1704 # Computer Graphics and Computer-Aided Design (where most design papers land)
       - 1709 # Human-Computer Interaction (design research, sketching tools)
-    s2_field: Art
   social:
     label: Social Sciences # psychology, sociology, geography
     arxiv_categories: [physics.soc-ph, cs.CY, cs.SI] # social physics, computers & society, social networks
@@ -71,7 +67,6 @@ fields:
       - 3207 # Social Psychology
       - 3312 # Sociology and Political Science
       - 3305 # Geography, Planning and Development
-    s2_field: [Psychology, Sociology, Geography]
 
 # Hard filters applied before any LLM call.
 filters:

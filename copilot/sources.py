@@ -1,4 +1,4 @@
-"""Fetchers for arXiv, OpenAlex and Semantic Scholar. Each returns list[Paper]."""
+"""Fetchers for arXiv, OpenAlex and Hugging Face Papers. Each returns list[Paper]."""
 import os
 import re
 import ssl
@@ -242,41 +242,6 @@ def search_openalex(query: str, field_id: int | None, limit: int, field: str, mi
             pdf_url=oa.get("pdf_url") or "",
             citations=w.get("cited_by_count", 0),
             source="OpenAlex",
-            field=field,
-        ))
-    return papers
-
-
-def search_semantic_scholar(query: str, s2_field: str | list[str] | None, limit: int, field: str, min_year: int) -> list[Paper]:
-    """Optional: works without a key but is heavily rate-limited. Set S2_API_KEY for reliability."""
-    if not s2_field:
-        return []
-    headers = dict(HEADERS)
-    if key := os.getenv("S2_API_KEY"):
-        headers["x-api-key"] = key
-    params = {
-        "query": query,
-        "fieldsOfStudy": s2_field if isinstance(s2_field, str) else ",".join(s2_field),
-        "year": f"{min_year}-",
-        "limit": limit,
-        "fields": "title,abstract,authors,year,venue,externalIds,url,openAccessPdf,citationCount",
-    }
-    r = _get("https://api.semanticscholar.org/graph/v1/paper/search", params, headers)
-    papers = []
-    for p in r.json().get("data", []):
-        ids = p.get("externalIds") or {}
-        papers.append(Paper(
-            title=p.get("title") or "",
-            abstract=p.get("abstract") or "",
-            authors=[a["name"] for a in (p.get("authors") or [])[:12]],
-            year=p.get("year"),
-            venue=p.get("venue") or "",
-            doi=ids.get("DOI", ""),
-            arxiv_id=ids.get("ArXiv", ""),
-            url=p.get("url") or "",
-            pdf_url=(p.get("openAccessPdf") or {}).get("url") or "",
-            citations=p.get("citationCount") or 0,
-            source="Semantic Scholar",
             field=field,
         ))
     return papers

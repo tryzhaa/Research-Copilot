@@ -90,7 +90,6 @@ def serialize(p: Paper) -> dict:
 class SearchIn(BaseModel):
     query: str
     fields: list[str]
-    use_s2: bool = False
     code_only: bool = False
     # Demo only: the visitor's recent liked / disliked titles, from the library in their browser,
     # so their ratings steer their own ranking the way yours do locally.
@@ -204,7 +203,7 @@ def search(body: SearchIn, request: Request) -> dict:
     meaning = rewrite.intent if rewrite else query
     ranker_query = f"{query} (meaning: {rewrite.intent})" if rewrite else query
 
-    papers, source_errors = search_all(keywords, prefs | {"priorities": priorities}, field_keys, body.use_s2)
+    papers, source_errors = search_all(keywords, prefs | {"priorities": priorities}, field_keys)
     errors += [e.to_dict() for e in source_errors]
     candidates = len(papers)
     try:

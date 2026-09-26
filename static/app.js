@@ -710,7 +710,7 @@ $("#search-form").addEventListener("submit", async e => {
   $("#back-original").hidden = true;
   const stop = ticker(s => setStatus(`searching, then ${modelName} reads the shortlist (a few minutes on a local model) · ${s}s`, true));
   try {
-    const data = await api("/api/search", { query, fields, use_s2: $("#use-s2").checked, code_only: $("#code-only").checked,
+    const data = await api("/api/search", { query, fields, code_only: $("#code-only").checked,
                                             ...lib.searchContext() });
     stop();
     const index = { building: " · code index still building, using hugging face links only", missing: " · code index not built" }[data.code_index] || "";
@@ -825,7 +825,7 @@ $$("nav button").forEach(b => b.addEventListener("click", () => showView(b.datas
       <label class="toggle"><input type="checkbox" value="${esc(key)}" ${!remembered || remembered.includes(key) ? "checked" : ""}><span>${esc(label)}</span></label>
     `).join("");
     $("#fields").addEventListener("change", () => store.set("fields", selectedFields()));
-    for (const id of ["use-s2", "code-only"]) {
+    for (const id of ["code-only"]) {
       $("#" + id).checked = !!store.get(id);
       $("#" + id).addEventListener("change", e => store.set(id, e.target.checked));
     }
