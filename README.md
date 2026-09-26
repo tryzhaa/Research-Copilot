@@ -3,12 +3,12 @@
 [![CI](https://github.com/tryzhaa/Research-Copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/tryzhaa/Research-Copilot/actions/workflows/ci.yml)
 
 **Live demo: [research-copilot-1014589976171.asia-south1.run.app](https://research-copilot-1014589976171.asia-south1.run.app)**
-(read-only, 5 searches an hour; the first visit after a quiet spell takes a moment to wake up, and a
-search takes ~40 s)
+(5 searches an hour; what you save and rate stays in your own browser; the first visit after a quiet
+spell takes a moment to wake up, and a search takes ~40 s)
 
 Finds research papers across arXiv, OpenAlex and Hugging Face Papers, and
 ranks them for one person: their standing interests, their past 👍/👎, and whether the paper
-has code, named datasets and a CPU-sized compute budget. Summaries follow a template that ends
+has code, named datasets (each linked to where you can get it) and a CPU-sized compute budget. Summaries follow a template that ends
 in a concrete build plan.
 
 It is also a small ranking system with an evaluation harness. Every search is recorded, your
@@ -20,7 +20,7 @@ pipeline actually puts the papers you like first.
 ```mermaid
 flowchart LR
     Q[query] --> W[LLM rewrite<br/>keywords + intent]
-    W --> F[fetch 4 sources<br/>in parallel]
+    W --> F[fetch 3 sources<br/>in parallel]
     F --> D[dedupe · filters<br/>attach code links]
     D --> E[embed<br/>bge-small, cached]
     E --> S[similarity<br/>shortlist]
@@ -33,19 +33,23 @@ flowchart LR
 ```
 
 1. **Retrieve.** An LLM first rewrites the query into 1-5 source keywords (abbreviations expanded,
-   filler dropped) and a sentence of intent that drives similarity and ranking. Four sources are
-   queried concurrently with the keywords, merged across arXiv IDs, DOIs and titles,
+   filler dropped) and a sentence of intent that drives similarity and ranking. The sources are
+   queried concurrently with the keywords, under one shared deadline, merged across arXiv IDs, DOIs and titles,
    and hard-filtered (year, keywords, citations). Code links come from the live Hugging Face
-   Papers API and a local SQLite index of the Papers with Code archive.
+   Papers API and a local SQLite index of the Papers with Code archive (287k paper→code links, plus
+   its catalogue of 15k datasets with homepages).
 2. **Embed.** Title + abstract go through `BAAI/bge-small-en-v1.5` (fastembed/ONNX, CPU). Vectors
    are cached in SQLite by paper and text hash, so repeat searches only embed what's new.
 3. **Shortlist.** Cosine similarity to the query plus the user's interests picks which candidates
-   the LLM reads.
-4. **Rerank.** An LLM scores the shortlist for relevance, extracts named datasets and judges GPU
-   need. Hosted open models (Groq, Cerebras, Gemini, OpenRouter) take a few seconds; local
+   the LLM reads (16). When code comes first in the tiers, relevant papers with code take the slots
+   first.
+4. **Rerank.** An LLM scores the shortlist for relevance and recruiter appeal, extracts named
+   datasets and judges GPU need. Free tiers cap each request, so abstracts are shortened to fit, and
+   the excerpt keeps the sentences that name datasets and results: papers name their benchmarks
+   near the end, and a plain cut kept the dataset names in 2 of 100 abstracts, the excerpt in 92. Hosted open models (Groq, Cerebras, Gemini, OpenRouter) take a few seconds; local
    Ollama and Claude are also supported.
-5. **Blend.** Among papers relevant enough (`min_relevance`), hard tiers (datasets, code, CPU by
-   default) come first, then a configurable weighted mean of the signals each paper has. When the LLM times out or fails, its signals drop out and results
+5. **Blend.** Among papers relevant enough (`min_relevance`), hard tiers (has code, then named
+   datasets, then runs on a CPU, as ordered in `preferences.yaml`) come first, then a configurable weighted mean of the signals each paper has. When the LLM times out or fails, its signals drop out and results
    fall back to similarity instead of arriving unranked.
 
 ## Similarity graph
@@ -55,6 +59,11 @@ neighbours by embedding similarity. **similar** on any paper runs a personalized
 from it: you get its closest papers, plus papers reached through the graph that plain
 nearest-neighbour search misses, each labelled with the paper that links them. The **map** tab
 draws the graph around what's on screen and in your library, so topic clusters are visible.
+
+Beside search results, the same graph shows the related papers from earlier searches. Clicking one
+adds it to the results as a full row: rebuilt from its saved record, read by the LLM for the current
+query, and slotted in by the same rank value the results carry. A back arrow restores the
+original results.
 
 ## Evaluation
 
@@ -143,7 +152,7 @@ likely overfit, but that hasn't been measured here.
 
 ## Engineering
 
-- `mypy` with `disallow_untyped_defs` and the pydantic plugin; 83 `pytest` tests,
+- `mypy` with `disallow_untyped_defs` and the pydantic plugin; 143 `pytest` tests,
   mocked HTTP for every source and the LLM client.
 - `Paper` is a pydantic model, validated wherever a paper enters: sources, the browser
   (a malformed paper gets a 422 naming the bad field), `library.json` and the eval dataset.
@@ -155,7 +164,10 @@ likely overfit, but that hasn't been measured here.
   LLM calls book slots in a shared tokens-per-minute budget (`tokens_per_minute`), so on a free
   tier a search that can't be ranked in time falls back to similarity at once instead of after
   its timeout; `library.json` writes hold a file lock, safe across server processes.
-- CI: type check → tests with coverage → evaluation report as a run summary and artifact.
+- CI: type check → tests with coverage (failures become annotations) → evaluation report as a
+  run summary and artifact.
+- The page asks for its static files by content hash (`app.js?v=…`), so browsers never keep a
+  stale script, stylesheet or icon after a deploy.
 - Local ranking went from 14.5 to 6 minutes per search by batching; hosted models bring it to
   seconds.
 
@@ -184,8 +196,9 @@ are baked in, and it runs with `DEMO_MODE=1`:
   `.env` and `data/` never enter the image (`.dockerignore`, `.gcloudignore`).
 - **Private signals stay private.** CPU/GPU, recruiter score and reason, similarity and preference
   still shape the ranking, but the server blanks them in every response the demo sends.
-- **Rate-limited.** Each visitor gets `DEMO_SEARCHES_PER_HOUR` searches (default 5) and
-  `DEMO_SUMMARIES_PER_HOUR` summaries (5); all visitors share `DEMO_DAILY_LIMIT` model calls a
+- **Rate-limited.** Each visitor gets `DEMO_SEARCHES_PER_HOUR` searches (default 5),
+  `DEMO_SUMMARIES_PER_HOUR` summaries (5) and `DEMO_MAP_ADDS_PER_HOUR` papers added from the map
+  (20); all visitors share `DEMO_DAILY_LIMIT` model calls a
   day (150), which keeps a free Groq key inside its quota. Counts live in memory, so they reset
   when the instance restarts.
 
@@ -217,7 +230,7 @@ for s in groq-api-key openalex-api-key; do
 done
 
 # Builds the Dockerfile in Cloud Build, then deploys
-gcloud run deploy research-copilot --source . --region us-central1 --allow-unauthenticated \
+gcloud run deploy research-copilot --source . --region asia-south1 --allow-unauthenticated \
     --memory 1Gi --cpu 1 --cpu-boost --min-instances 0 --max-instances 1 \
     --set-secrets GROQ_API_KEY=groq-api-key:latest,OPENALEX_API_KEY=openalex-api-key:latest
 ```
