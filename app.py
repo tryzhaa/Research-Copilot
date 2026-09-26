@@ -1,12 +1,14 @@
 """Research Copilot web app. Run: uvicorn app:app --reload  →  http://localhost:8000"""
+import hashlib
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import random
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -141,9 +143,20 @@ class MapIn(BaseModel):
     ratings: dict[str, int] = {}  # key -> -1 / 1
 
 
+def versioned(match: re.Match[str]) -> str:
+    """/static/icon.svg → /static/icon.svg?v=<content hash>: a new address whenever the file
+    changes, so browsers never keep an old copy. Browsers hold on to a site icon especially
+    long, past normal refreshes."""
+    path = ROOT / "static" / match.group(1)
+    if not path.is_file():
+        return match.group(0)
+    return f"/static/{match.group(1)}?v={hashlib.sha256(path.read_bytes()).hexdigest()[:10]}"
+
+
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(ROOT / "static" / "index.html")
+def index() -> HTMLResponse:
+    html = (ROOT / "static" / "index.html").read_text()
+    return HTMLResponse(re.sub(r"/static/([\w.-]+)(?=\")", versioned, html))
 
 
 @app.get("/api/prefs")

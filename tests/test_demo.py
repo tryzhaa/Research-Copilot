@@ -137,3 +137,13 @@ def test_demo_map_uses_the_visitors_library_not_the_servers(demo_mode: TestClien
     assert seen["focus"] == ["onscreen", "mine"]               # the map tab includes their library
     assert seen["exclude"] == {"mine", "gone"}                 # nothing they've rated is suggested
     assert {n["key"]: n["rating"] for n in data["nodes"]} == {"mine": 1, "other": 0}  # clamped to ±1
+
+
+def test_page_asks_for_each_static_file_by_its_content(tmp_path: object) -> None:
+    import hashlib
+
+    from app import ROOT
+    html = TestClient(app).get("/").text
+    icon = hashlib.sha256((ROOT / "static" / "icon.svg").read_bytes()).hexdigest()[:10]
+    assert f'/static/icon.svg?v={icon}"' in html  # a changed icon gets a new address, so no stale copy
+    assert '/static/app.js?v=' in html and '/static/style.css?v=' in html
