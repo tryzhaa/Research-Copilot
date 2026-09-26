@@ -1,2 +1,5 @@
-timestamp,commit,labels,likes,folds,auc,auc_std,accuracy
-2026-09-25T20:03:15,c26e7a8-dirty,56,26,5,0.5878,0.1533,0.6076
+timestamp,commit,labels,likes,folds,auc,auc_std,accuracy,features
+2026-09-25T20:03:15,c26e7a8-dirty,56,26,5,0.5878,0.1533,0.6076,embedding
+2026-09-26T16:22:03,806b0b7-dirty,161,60,5,0.6209,0.0857,0.5718,embedding
+2026-09-26T16:22:03,806b0b7-dirty,161,60,5,0.7124,0.0917,0.6206,structured
+2026-09-26T16:22:03,806b0b7-dirty,161,60,5,0.6308,0.0821,0.6030,enriched

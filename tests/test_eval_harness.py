@@ -81,8 +81,9 @@ def test_strategies_rank_as_constructed(data: dict) -> None:
     rnd = table["random"]["ndcg@10"]
     assert table["LLM relevance only"]["ndcg@10"] < rnd < 1.0
     # the preference model learns "good" from the other five searches, out of fold
-    assert table["preference model only"]["ndcg@10"] == pytest.approx(1.0)
-    assert table["preference model only"]["searches"] == 6
+    for name in ("preference model only (embeddings)", "preference model only (embeddings + signals)"):
+        assert table[name]["ndcg@10"] == pytest.approx(1.0)
+        assert table[name]["searches"] == 6
 
 
 def test_cli_without_data_exits_cleanly(tmp_path: object, capsys: pytest.CaptureFixture[str]) -> None:

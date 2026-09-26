@@ -78,37 +78,48 @@ def strategies(prefs: dict, with_preference: bool) -> dict[str, Callable[[Cands]
     }
     if with_preference:
         pref_w = w.get("preference") or 0.15
-        out["preference model only"] = by(lambda c: _num(c["preference"]))
+        out["preference model only (embeddings)"] = by(lambda c: _num(c["preference_embedding"]))
+        out["preference model only (embeddings + signals)"] = by(lambda c: _num(c["preference_enriched"]))
         out[f"current pipeline + preference ({pref_w:g})"] = pipeline(pr | {"weights": w | {"preference": pref_w}},
                                                                      rest_by="similarity")
     return out
 
 
 def out_of_fold_preferences(data: dict) -> bool:
-    """Set c['preference'] on every candidate from a model trained without that search's labels.
-    Returns False when there aren't enough labels to train."""
+    """For every candidate, P(like) from preference models trained without that search's labels:
+    c["preference_embedding"] (embeddings alone) and c["preference_enriched"] (embeddings plus
+    the pipeline's signals), with c["preference"] = the enriched one, which the app uses.
+    Training rows take each paper's signals from its first leakage-free search (dataset.json
+    "signals"); a candidate's own signals are the ones recorded in this search, whose leaked
+    labels dataset.py already dropped. Returns False when there aren't enough labels to train."""
     from copilot.embed_cache import get_embeddings
     from copilot.embeddings import paper_text
-    from copilot.preference_model import can_train, train_preference_model
+    from copilot.preference_model import Kind, can_train, features, train_preference_model
 
     labeled = data["labeled"]
     if not labeled:
         return False
     vecs = get_embeddings([p["key"] for p in labeled], [paper_text(p["title"], p["abstract"]) for p in labeled])
     labels = np.array([p["label"] for p in labeled])
+    rows = [p.get("signals") or {} for p in labeled]
+    kinds: tuple[Kind, ...] = ("embedding", "enriched")
+    X = {k: features(vecs, rows, k) for k in kinds}
     trained_any = False
     for s in data["searches"]:
-        held_out = {c["key"] for c in s["candidates"]}
+        cs = s["candidates"]
+        held_out = {c["key"] for c in cs}
         train = np.array([i for i, p in enumerate(labeled) if p["key"] not in held_out], dtype=int)
         if not can_train(labels[train]):
-            for c in s["candidates"]:
-                c["preference"] = None
+            for c in cs:
+                c.update(preference=None, preference_embedding=None, preference_enriched=None)
             continue
-        clf = train_preference_model(vecs[train], labels[train])
-        cand_vecs = get_embeddings([c["key"] for c in s["candidates"]],
-                                   [paper_text(c["title"], c["abstract"]) for c in s["candidates"]])
-        for c, prob in zip(s["candidates"], clf.predict_proba(cand_vecs)[:, 1]):
-            c["preference"] = float(prob)
+        cand_vecs = get_embeddings([c["key"] for c in cs], [paper_text(c["title"], c["abstract"]) for c in cs])
+        for k in kinds:
+            model = train_preference_model(X[k][train], labels[train])
+            for c, prob in zip(cs, model.predict_proba(features(cand_vecs, cs, k))[:, 1]):
+                c[f"preference_{k}"] = float(prob)
+        for c in cs:
+            c["preference"] = c["preference_enriched"]
         trained_any = True
     return trained_any
 

@@ -24,12 +24,18 @@ def paper_vectors(papers: list[Paper]) -> np.ndarray:
 
 
 def score_similarity(papers: list[Paper], query: str, interests: str) -> np.ndarray:
-    """Sets p.similarity on every paper, and p.preference when a preference model is trained."""
+    """Sets p.similarity on every paper."""
     vecs = paper_vectors(papers)
     for p, s in zip(papers, rank_by_similarity(query_vector(query, interests), vecs)):
         p.similarity = float(s)
-    probs = predict(vecs)
+    return vecs
+
+
+def score_preference(papers: list[Paper]) -> None:
+    """Sets p.preference when a preference model is trained. Call it after the LLM has ranked
+    these papers: the model also reads relevance, recruiter score, datasets and GPU needs.
+    Embeddings come from the cache the similarity step filled."""
+    probs = predict(paper_vectors(papers), [p.to_dict() for p in papers])
     if probs is not None:
         for p, prob in zip(papers, probs):
             p.preference = float(prob)
-    return vecs

@@ -11,32 +11,31 @@ was in that list during a search is dropped from that search's pool, otherwise t
 be graded on answers it was given.
 """
 import json
-import re
 import time
 from pathlib import Path
 
 from copilot import library, snapshots
+from copilot.preference_model import clean_feature_rows, norm_title
 
 PATH = Path(__file__).resolve().parent / "dataset.json"
 
 
-def _norm(title: str) -> str:
-    return re.sub(r"\W+", "", title.lower())
-
-
 def build(searches: list[dict], entries: list[dict]) -> dict:
     labels = {e["key"]: int(e["rating"] > 0) for e in entries if e.get("rating")}
+    # Each rated paper's signals come from its first leakage-free appearance (see clean_feature_rows).
+    signals = clean_feature_rows(entries, searches)
     labeled = [{"key": e["key"], "label": labels[e["key"]], "title": e["paper"]["title"],
-                "abstract": e["paper"].get("abstract", "")} for e in entries if e["key"] in labels]
+                "abstract": e["paper"].get("abstract", ""), "signals": signals[e["key"]]}
+               for e in entries if e["key"] in labels]
 
     out, leaked, too_small = [], 0, 0
     for s in searches:
-        seen = {_norm(t) for t in s.get("feedback_titles", [])}
+        seen = {norm_title(t) for t in s.get("feedback_titles", [])}
         judged = []
         for pos, c in enumerate(s["candidates"]):
             if c["key"] not in labels:
                 continue
-            if _norm(c["title"]) in seen:
+            if norm_title(c["title"]) in seen:
                 leaked += 1
                 continue
             judged.append(c | {"pos": pos, "label": labels[c["key"]]})

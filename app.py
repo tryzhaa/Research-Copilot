@@ -177,6 +177,10 @@ def search(body: SearchIn, request: Request) -> dict:
         papers = rank_with_timeout(papers, ranker_query, prefs, liked, disliked, prefs.get("rank_timeout_seconds", 120))
     except RankingError as e:
         errors.append(e.to_dict())
+    try:
+        retrieval.score_preference(papers)  # after ranking: it reads the LLM's scores too
+    except EmbeddingError as e:
+        errors.append(e.to_dict())
     papers = prioritize(papers, priorities)
     try:
         snapshots.save(query, prefs, field_keys, pool, papers, feedback_titles=liked[-15:] + disliked[-15:],
