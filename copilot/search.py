@@ -168,15 +168,20 @@ def is_relevant(p: Paper, priorities: dict, sim_range: tuple[float, float]) -> b
     return rel is not None and rel >= priorities.get("min_relevance", 5)
 
 
+def rank_value(p: Paper, priorities: dict, sim_range: tuple[float, float]) -> float:
+    """Where a paper sorts, as one number (higher first): relevant, then its tier, then the
+    blended score. The same order as the (relevant, tier, blend) tuple: the blend is at most 10
+    and each tier step is 100, so nothing lower can outweigh something higher."""
+    relevant = is_relevant(p, priorities, sim_range)
+    tier = priority_tier(p, priorities) if relevant else 0
+    return 1000 * relevant + 100 * tier + blended_score(p, priorities, sim_range)
+
+
 def prioritize(papers: list[Paper], priorities: dict) -> list[Paper]:
     """Relevant papers first. Among them: the tier_order tiers, then the blended score.
     Tiers never lift an off-topic paper above an on-topic one (set min_relevance: 0 to allow it)."""
     rng = similarity_range(papers)
-
-    def key(p: Paper) -> tuple[bool, int, float]:
-        relevant = is_relevant(p, priorities, rng)
-        return relevant, priority_tier(p, priorities) if relevant else 0, blended_score(p, priorities, rng)
-    return sorted(papers, key=key, reverse=True)
+    return sorted(papers, key=lambda p: rank_value(p, priorities, rng), reverse=True)
 
 
 def shortlist(papers: list[Paper], limit: int, priorities: dict) -> list[Paper]:

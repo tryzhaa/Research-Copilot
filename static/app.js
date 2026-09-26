@@ -185,7 +185,7 @@ function row(p, entry = null, { trending = false, note = "" } = {}) {
   ].filter(Boolean).join("");
 
   return `
-  <li class="paper" data-key="${esc(p.key)}">
+  <li class="paper" data-key="${esc(p.key)}"${p.rank != null ? ` data-rank="${+p.rank}"` : ""}>
     <div class="score ${p.score != null && p.score < 5 ? "low" : ""} ${votes ? "votes" : ""}"
          ${votes ? `title="${p.upvotes} upvotes on Hugging Face"` : ""}>${score}</div>
     <div>
@@ -339,7 +339,8 @@ async function similarRow(li, p) {
 // ---------- similarity graph drawing (map tab and the graph beside search results) ----------
 
 // Draws nodes + links with d3-force into `box`. opts: height, fill(d), big(d), onSelect(d).
-// Returns { highlight(key | null) } so rows can light up their node.
+// Returns { highlight(key | null), refresh() } so rows can light up their node, and nodes can be
+// redrawn after their data changes (a paper added to the results turns bright).
 function drawGraph(box, data, opts) {
   box._graph?.stop();  // an earlier layout in this box stops ticking
   const css = getComputedStyle(document.documentElement), col = v => css.getPropertyValue(v).trim();
@@ -395,7 +396,10 @@ function drawGraph(box, data, opts) {
       .attr("r", n => n.key === key ? 8 : opts.big(n) ? 5.5 : 3.5);
     link.attr("stroke", l => key != null && touches(l) ? col("--soft") : col("--faint"));
   }
-  return { highlight };
+  function refresh() {
+    node.attr("fill", d => opts.fill(d, col)).attr("r", d => opts.big(d) ? 5.5 : 3.5);
+  }
+  return { highlight, refresh };
 }
 
 async function showCard(card, d) {
@@ -453,11 +457,68 @@ async function drawResultsGraph(keys) {
     fill: (d, col) => d.on_screen ? col("--fg") : d.rating < 0 ? "none" : col("--faint"),
     onSelect: d => {
       const li = $(`#results .paper[data-key="${CSS.escape(d.key)}"]`);
-      if (!li) return showCard($("#rg-card"), d);
-      $("#rg-card").hidden = true;
-      flash(li);
+      if (li) {
+        $("#rg-card").hidden = true;
+        return flash(li);
+      }
+      if (!searchId) return showCard($("#rg-card"), d);
+      addFromMap(d);
     },
   });
+}
+
+// A paper clicked on the map joins the results as a full row: the server rebuilds it, reads it
+// for this search (relevance, datasets, recruiter score, GPU needs) and returns its rank value,
+// the same one the results carry, so it lands where the ranking would have put it.
+const adding = new Set();
+let addedNodes = [];  // map nodes whose papers were added, to undo with "back to the original results"
+
+function backToOriginal() {
+  $$("#results > .paper[data-added]").forEach(li => li.remove());
+  addedNodes.forEach(d => { d.on_screen = false; });
+  addedNodes = [];
+  resultsGraph?.refresh();
+  $("#rg-card").hidden = true;
+  $("#back-original").hidden = true;
+}
+$("#back-original").addEventListener("click", backToOriginal);
+
+async function addFromMap(d) {
+  if (adding.has(d.key)) return;
+  adding.add(d.key);
+  const card = $("#rg-card");
+  card.hidden = false;
+  const stop = ticker(s => {
+    card.innerHTML = `<p class="note">adding “${esc(d.title)}” to your results · ${esc(modelName)} is reading it · ${s}s`
+      + (s >= 8 ? " · on a free tier, right after a search this waits up to a minute for the model's quota" : "") + "</p>";
+  });
+  try {
+    const { paper, errors } = await api("/api/place", {
+      search_id: searchId, key: d.key,
+      paper: { title: d.title, abstract: d.abstract, year: d.year, url: d.url, code_url: d.code_url, source: d.source },
+      ...lib.searchContext(),
+    });
+    if ($(`#results .paper[data-key="${CSS.escape(paper.key)}"]`)) return;  // added twice by quick clicks
+    const tmp = document.createElement("ol");
+    tmp.innerHTML = row(paper);
+    const li = tmp.firstElementChild;
+    li.dataset.added = "1";
+    const after = $$("#results > .paper").find(el => el.dataset.rank != null && +el.dataset.rank < paper.rank);
+    $("#results").insertBefore(li, after || null);
+    d.on_screen = true;
+    addedNodes.push(d);
+    resultsGraph?.refresh();
+    $("#back-original").hidden = false;
+    card.hidden = !errors.length;
+    card.innerHTML = errors.length
+      ? `<p class="note">added, but ${esc(errors.map(e => e.message).join(" · "))}</p>` : "";
+    flash(li);
+  } catch (err) {
+    card.innerHTML = `<p class="note">${esc(err.message)}</p>`;
+  } finally {
+    stop();
+    adding.delete(d.key);
+  }
 }
 
 // The map beside a list: at most ~38% of the screen, so a clicked paper's card below it has room.
@@ -631,6 +692,7 @@ const errorRow = e => `<li class="err-${esc(e.error_type)}"><b>${esc(e.source)}$
 
 const selectedFields = () => $$("#fields input:checked").map(i => i.value);
 let searching = false;
+let searchId = null;  // the search on screen, to add papers from its map into (addFromMap)
 
 $("#search-form").addEventListener("submit", async e => {
   e.preventDefault();
@@ -645,6 +707,7 @@ $("#search-form").addEventListener("submit", async e => {
   $("#errors").innerHTML = "";
   $("#sample").hidden = true;
   $("#results-graph").hidden = true;
+  $("#back-original").hidden = true;
   const stop = ticker(s => setStatus(`searching, then ${modelName} reads the shortlist (a few minutes on a local model) · ${s}s`, true));
   try {
     const data = await api("/api/search", { query, fields, use_s2: $("#use-s2").checked, code_only: $("#code-only").checked,
@@ -657,6 +720,9 @@ $("#search-form").addEventListener("submit", async e => {
       ? `${data.candidates} candidates · ${data.with_code} with code · showing the top ${data.papers.length}${index}`
       : "nothing matched. try broader words, another field, or turn off code only"));
     $("#errors").innerHTML = data.errors.map(errorRow).join("");
+    searchId = data.search_id;
+    addedNodes = [];
+    $("#back-original").hidden = true;
     $("#results").innerHTML = data.papers.map(p => row(p)).join("");
     drawResultsGraph(data.papers.map(p => p.key)).catch(() => { $("#results-graph").hidden = true; });
     $("#sample-list").innerHTML = (data.unranked_sample || []).map(p => row(p)).join("");

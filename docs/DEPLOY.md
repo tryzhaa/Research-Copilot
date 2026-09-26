@@ -10,9 +10,9 @@ by step. Steps 1-6 are one-time setup; after that, Step 7 is the whole redeploy.
   unprivileged user with `DEMO_MODE=1`.
 - **Demo mode** (`copilot/demo.py`): each visitor's library (saves, ratings, folders,
   summaries) lives in their own browser's localStorage, and the server's write endpoints return
-  403, so visitors never share state. It's rate-limited: 5 searches and 5 summaries per visitor per hour, 150 model
+  403, so visitors never share state. It's rate-limited: 5 searches, 5 summaries and 20 papers added from the map per visitor per hour, 150 model
   calls a day in total. Limits are configurable with `DEMO_SEARCHES_PER_HOUR`,
-  `DEMO_SUMMARIES_PER_HOUR` and `DEMO_DAILY_LIMIT`. The owner's private signals (CPU/GPU,
+  `DEMO_SUMMARIES_PER_HOUR`, `DEMO_MAP_ADDS_PER_HOUR` and `DEMO_DAILY_LIMIT`. The owner's private signals (CPU/GPU,
   recruiter score and reason, similarity, preference) still shape the ranking but are blanked in
   every response, so visitors never receive them.
 - **`.dockerignore` / `.gcloudignore`**: keep `.env` (API keys), `library.json` and `data/` out of

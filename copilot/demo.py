@@ -64,6 +64,7 @@ def limits() -> dict[str, int]:
     return {
         "searches_per_hour": _env_int("DEMO_SEARCHES_PER_HOUR", 5),
         "summaries_per_hour": _env_int("DEMO_SUMMARIES_PER_HOUR", 5),
+        "map_adds_per_hour": _env_int("DEMO_MAP_ADDS_PER_HOUR", 20),  # one paper each: small calls
         "llm_calls_per_day": _env_int("DEMO_DAILY_LIMIT", 150),  # searches + summaries, all visitors
     }
 
@@ -74,6 +75,7 @@ def _limiters() -> dict[str, RateLimiter]:
     return {
         "search": RateLimiter(lim["searches_per_hour"], 3600),
         "summary": RateLimiter(lim["summaries_per_hour"], 3600),
+        "place": RateLimiter(lim["map_adds_per_hour"], 3600),
         "daily": RateLimiter(lim["llm_calls_per_day"], 86400),
     }
 
@@ -85,11 +87,11 @@ def reset() -> None:
 
 
 def spend(kind: str, visitor: str) -> str | None:
-    """Count one `kind` ("search" or "summary") for `visitor`. Returns why it's refused, or None."""
+    """Count one `kind` ("search", "summary" or "place") for `visitor`. Returns why it's refused, or None."""
     per_visitor, daily = _limiters()[kind], _limiters()["daily"]
     if not per_visitor.allow(visitor):
         minutes = -(-per_visitor.retry_after(visitor) // 60)
-        plural = {"search": "searches", "summary": "summaries"}[kind]
+        plural = {"search": "searches", "summary": "summaries", "place": "papers added from the map"}[kind]
         return (f"The demo allows {per_visitor.limit} {plural} an hour per visitor. Try again in "
                 f"{minutes} min, or run it yourself: github.com/tryzhaa/Research-Copilot")
     if not daily.allow("all"):

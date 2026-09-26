@@ -17,7 +17,7 @@ from copilot.errors import EmbeddingError, RankingError, RewriteError, SourceFet
 from copilot.llm import QueryRewrite, rank_with_timeout, rewrite_query, summarize
 from copilot.models import InvalidPaper, Paper
 from copilot.prefs import load_prefs
-from copilot.search import prioritize, search_all, shortlist
+from copilot.search import attach_code, prioritize, rank_value, search_all, shortlist, similarity_range
 
 ROOT = Path(__file__).parent
 log = logging.getLogger("uvicorn.error")
@@ -224,11 +224,14 @@ def search(body: SearchIn, request: Request) -> dict:
     except EmbeddingError as e:
         errors.append(e.to_dict())
     papers = prioritize(papers, priorities)
+    search_id = None
     try:
-        snapshots.save(query, prefs, field_keys, pool, papers, feedback_titles=liked[-15:] + disliked[-15:],
-                       rewrite=rewrite.model_dump() if rewrite else None)
+        search_id = snapshots.search_id(snapshots.save(
+            query, prefs, field_keys, pool, papers, feedback_titles=liked[-15:] + disliked[-15:],
+            rewrite=rewrite.model_dump() if rewrite else None))
     except OSError as e:
         log.warning("couldn't save search snapshot: %s", e)
+    rng = similarity_range(papers)
     shown = papers[:prefs["show_top"]]
     shown_keys = {p.key for p in shown}
     rest = [p for p in pool if p.key not in shown_keys]
@@ -237,7 +240,9 @@ def search(body: SearchIn, request: Request) -> dict:
         "candidates": candidates,
         "with_code": sum(p.has_code for p in papers),
         "code_index": pwc.status(),
-        "papers": [serialize(p) for p in shown],
+        "search_id": search_id,  # to add a paper from the map into these results later (/api/place)
+        # rank: where each sorts, so a paper added from the map can be slotted in among them
+        "papers": [serialize(p) | {"rank": round(rank_value(p, priorities, rng), 4)} for p in shown],
         # Rating a few candidates the ranker *didn't* show keeps the eval honest: otherwise
         # every label comes from the current ranker's top 10, and a strategy that surfaces
         # a paper it buried could never get credit.
@@ -263,6 +268,57 @@ def summarize_paper(body: PaperIn, request: Request) -> dict:
         raise HTTPException(502, f"Summary failed: {e}")
     library.upsert(paper, summary=text, full_text=full_text)
     return {"summary": text, "full_text": full_text}
+
+
+class PlaceIn(BaseModel):
+    search_id: str
+    key: str
+    paper: dict = {}              # what the map knows of it: used when nothing fuller is saved
+    liked: list[str] = []         # the demo visitor's ratings, as for /api/search
+    disliked: list[str] = []
+
+
+@app.post("/api/place")
+def place(body: PlaceIn, request: Request) -> dict:
+    """A paper clicked on the map, made a full result of the search on screen: rebuilt from its
+    fullest saved record, its code looked up, its similarity measured against this search, read by
+    the model for this query (relevance, datasets, recruiter score, GPU needs), and given the same
+    rank value as the results, so the page can slot it in where the ranking puts it. If the model
+    is busy, it keeps its stored signals and ranks on similarity instead of relevance."""
+    prefs = load_prefs()
+    snap = snapshots.load(body.search_id)
+    if snap is None:
+        raise HTTPException(404, "That search is no longer saved. Search again to add papers from the map.")
+    stored = snapshots.find_paper(body.key) or ({"title": body.paper.get("title")} | body.paper
+                                                if body.paper.get("title") else None)
+    if stored is None:
+        raise HTTPException(404, "No record of that paper.")
+    spend(request, "place")
+    p = Paper.from_dict(stored)
+    p.score, p.reason = None, ""  # relevance was to another search's query
+    priorities = prefs.get("priorities", {})
+    errors: list[dict] = []
+    attach_code([p])
+    intent = (snap.get("rewrite") or {}).get("intent")
+    try:
+        retrieval.score_similarity([p], intent or snap["query"], snap.get("interests", ""))
+    except EmbeddingError as e:
+        errors.append(e.to_dict())
+    liked, disliked = ((visitor_titles(body.liked), visitor_titles(body.disliked)) if demo.enabled()
+                       else library.rated_titles())
+    ranker_query = f"{snap['query']} (meaning: {intent})" if intent else snap["query"]
+    try:
+        [p] = rank_with_timeout([p], ranker_query, prefs, liked, disliked, prefs.get("place_timeout_seconds", 75))
+    except RankingError as e:
+        errors.append(e.to_dict())
+    try:
+        retrieval.score_preference([p])
+    except EmbeddingError as e:
+        errors.append(e.to_dict())
+    # The search's own range: similarity is scaled within the papers the results were ranked among.
+    ranked = [c for c in snap["candidates"] if c.get("shortlisted")] or snap["candidates"]
+    rng = similarity_range([Paper(title=c["title"], similarity=c.get("similarity")) for c in ranked])
+    return {"paper": serialize(p) | {"rank": round(rank_value(p, priorities, rng), 4)}, "errors": errors}
 
 
 @app.post("/api/similar")
