@@ -80,3 +80,32 @@ def test_writes_work_outside_demo_mode(monkeypatch: pytest.MonkeyPatch, tmp_path
     client = TestClient(app)
     assert client.get("/api/prefs").json()["demo"] is None
     assert client.post("/api/rate", json={"paper": PAPER, "rating": 1}).status_code == 200
+
+
+RANKED = dict(title="Deep Sets", score=8.0, recruiter=9.0, recruiter_reason="impressive", needs_gpu=False,
+              compute_note="cpu fine", similarity=0.87, preference=0.7, code_url="https://github.com/x", datasets=["QM9"])
+
+
+def test_demo_never_sends_the_owners_private_signals(demo_mode: TestClient) -> None:
+    from app import serialize
+    from copilot.models import Paper
+    d = serialize(Paper(**RANKED))  # type: ignore[arg-type]
+    assert (d["needs_gpu"], d["compute_note"], d["recruiter"], d["recruiter_reason"], d["similarity"], d["preference"]) \
+        == (None, "", None, "", None, None)
+    assert d["score"] == 8.0 and d["code_url"] and d["datasets"] == ["QM9"]  # what visitors do see
+
+
+def test_owner_sees_every_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app import serialize
+    from copilot.models import Paper
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    d = serialize(Paper(**RANKED))  # type: ignore[arg-type]
+    assert (d["recruiter"], d["needs_gpu"], d["similarity"], d["recruiter_reason"]) == (9.0, False, 0.87, "impressive")
+
+
+def test_demo_similar_panel_has_no_similarity_numbers(demo_mode: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from copilot import graph
+    monkeypatch.setattr(graph, "similar", lambda paper, key: [
+        {"key": "k1", "title": "Near", "url": "u", "year": 2021, "similarity": 0.93, "score": 0.2, "direct": True, "via": None}])
+    [item] = demo_mode.post("/api/similar", json={"paper": {"title": "Deep Sets"}}).json()["similar"]
+    assert item["similarity"] is None and "score" not in item and item["title"] == "Near"

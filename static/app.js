@@ -212,7 +212,7 @@ $("#lib-folders").addEventListener("click", e => {
 function similarList(items) {
   if (!items.length) return `<p class="note">nothing close enough yet. search more and the graph grows.</p>`;
   const item = s => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a>
-    <span class="sim">${(+s.similarity).toFixed(2)}${s.year ? ` · ${esc(s.year)}` : ""}</span>
+    <span class="sim">${[s.similarity != null ? (+s.similarity).toFixed(2) : "", s.year ? esc(s.year) : ""].filter(Boolean).join(" · ")}</span>
     ${s.via ? `<span class="via">via “${esc(s.via)}”</span>` : ""}</li>`;
   const close = items.filter(s => s.direct), reached = items.filter(s => !s.direct);
   return `<p class="note">closest</p><ol>${close.map(item).join("")}</ol>`

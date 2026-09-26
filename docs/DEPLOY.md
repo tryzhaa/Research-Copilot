@@ -11,7 +11,9 @@ by step. Steps 1-6 are one-time setup; after that, Step 7 is the whole redeploy.
 - **Demo mode** (`copilot/demo.py`): the public copy is read-only (rating, saving, folders and
   removing return 403) and rate-limited: 5 searches and 5 summaries per visitor per hour, 150 model
   calls a day in total. Limits are configurable with `DEMO_SEARCHES_PER_HOUR`,
-  `DEMO_SUMMARIES_PER_HOUR` and `DEMO_DAILY_LIMIT`.
+  `DEMO_SUMMARIES_PER_HOUR` and `DEMO_DAILY_LIMIT`. The owner's private signals (CPU/GPU,
+  recruiter score and reason, similarity, preference) still shape the ranking but are blanked in
+  every response, so visitors never receive them.
 - **`.dockerignore` / `.gcloudignore`**: keep `.env` (API keys), `library.json` and `data/` out of
   the image and off Google's servers. The demo starts with an empty library of its own.
 

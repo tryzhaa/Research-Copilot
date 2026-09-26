@@ -58,9 +58,23 @@ def spend(request: Request, kind: str) -> None:
         raise HTTPException(429, refusal)
 
 
+# The owner's private signals: how the ranking judges a paper *for you* (can you run it on a CPU,
+# would it impress a recruiter, how close it is to your interests). The public demo still ranks
+# with them but blanks them in every response, so visitors never receive them, not just never see them.
+PRIVATE_FIELDS: dict[str, object] = {"needs_gpu": None, "compute_note": "", "recruiter": None,
+                                     "recruiter_reason": "", "similarity": None, "preference": None}
+
+
+def public(d: dict) -> dict:
+    """A paper dict as the current viewer may see it: unchanged locally, private signals blanked in the demo."""
+    if not demo.enabled():
+        return d
+    return d | {k: v for k, v in PRIVATE_FIELDS.items() if k in d}
+
+
 def serialize(p: Paper) -> dict:
     entry = library.get(p.key) or {}
-    return p.to_dict() | {
+    return public(p.to_dict()) | {
         "key": p.key,
         "has_code": p.has_code,
         "bibtex": p.bibtex(),
@@ -231,7 +245,11 @@ def similar(body: SimilarIn) -> dict:
         found = graph.similar(paper.to_dict(), body.key or paper.key)
     except EmbeddingError as e:
         raise HTTPException(502, str(e))
-    return {"similar": found}
+    items = [public(s) for s in found]
+    if demo.enabled():
+        for s in items:
+            s.pop("score", None)  # the graph walk's rank for this paper: private, like similarity
+    return {"similar": items}
 
 
 @app.post("/api/map")
@@ -250,7 +268,8 @@ def paper_map(body: MapIn) -> dict:
         # The library's map lists these under it, as rows you can like or save.
         known = {e["key"] for e in entries if e.get("rating") or e.get("saved")}
         found = graph.related(body.keys, exclude=known, n=min(body.related, 30))
-        data["related"] = [serialize(Paper.from_dict(p)) | {"sim": p["sim"], "via": p["via"]} for p in found]
+        data["related"] = [serialize(Paper.from_dict(p)) | {"via": p["via"]} | ({} if demo.enabled() else {"sim": p["sim"]})
+                           for p in found]
     return data
 
 

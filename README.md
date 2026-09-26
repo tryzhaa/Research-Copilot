@@ -175,6 +175,8 @@ are baked in, and it runs with `DEMO_MODE=1`:
 - **Read-only.** Rating, saving, folders and removing return 403 and are hidden: one process
   serves every visitor, so writes would leak between strangers and steer each other's rankings.
   `library.json`, `.env` and `data/` never enter the image (`.dockerignore`, `.gcloudignore`).
+- **Private signals stay private.** CPU/GPU, recruiter score and reason, similarity and preference
+  still shape the ranking, but the server blanks them in every response the demo sends.
 - **Rate-limited.** Each visitor gets `DEMO_SEARCHES_PER_HOUR` searches (default 5) and
   `DEMO_SUMMARIES_PER_HOUR` summaries (5); all visitors share `DEMO_DAILY_LIMIT` model calls a
   day (150), which keeps a free Groq key inside its quota. Counts live in memory, so they reset
