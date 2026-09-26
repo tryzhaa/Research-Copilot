@@ -17,10 +17,12 @@ USER user
 
 # Bake the slow one-time downloads into the image so a cold start doesn't redo them:
 # the Papers with Code index (~5 min) and the bge-small embedding model (~130 MB).
-# Only the modules they need are copied first, so ordinary code changes reuse this layer.
-COPY --chown=user copilot/__init__.py copilot/errors.py copilot/pwc.py copilot/embeddings.py copilot/
+# Only pwc.py (standard library only) is copied first, and the model is fetched with fastembed
+# directly, so code changes elsewhere reuse this layer instead of redownloading for ~10 min.
+# The model name and cache dir must match copilot/embeddings.py (tests/test_embeddings.py checks).
+COPY --chown=user copilot/__init__.py copilot/pwc.py copilot/
 RUN python -m copilot.pwc && \
-    python -c "from copilot.embeddings import embed_texts; embed_texts(['warm up'])"
+    python -c "from fastembed import TextEmbedding; list(TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='data/models').embed(['warm up']))"
 
 COPY --chown=user . .
 

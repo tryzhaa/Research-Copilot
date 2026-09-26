@@ -52,3 +52,9 @@ def test_cpu_limit_reads_the_cgroup_quota(tmp_path: Path) -> None:
         cpu_max.write_text(content)
         assert embeddings.cpu_limit(cpu_max) == expected
     assert embeddings.cpu_limit(tmp_path / "missing") is None
+
+
+def test_dockerfile_bakes_the_model_the_app_loads() -> None:
+    dockerfile = (Path(__file__).resolve().parent.parent / "Dockerfile").read_text()
+    assert f"TextEmbedding('{embeddings.MODEL_NAME}', cache_dir='data/models')" in dockerfile
+    assert embeddings.MODEL_DIR.relative_to(embeddings.MODEL_DIR.parent.parent) == Path("data/models")
