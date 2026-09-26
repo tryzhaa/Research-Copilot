@@ -15,17 +15,19 @@ provider: groq
 model: openai/gpt-oss-120b
 # provider: ollama
 # model: qwen3:4b
-effort: medium                # low | medium | high. On ollama, high turns on the model's thinking: better, much slower.
-reasoning_effort: low         # hosted reasoning models (gpt-oss, qwen3): scoring papers doesn't need long thinking
-request_token_limit: 7000     # hosted free tiers cap tokens per request/minute (Groq free: 8000, counting the
-                              # reserved answer); ranking trims abstracts to fit. Remove on paid tiers
-context_tokens: 16000         # how much paper text the model reads when summarizing. On ollama, more needs more RAM
-                              # (use 8192 on an 8 GB Mac); on free hosted tiers, too much hits per-minute token limits.
+effort: medium # low | medium | high. On ollama, high turns on the model's thinking: better, much slower.
+reasoning_effort: low # hosted reasoning models (gpt-oss, qwen3): scoring papers doesn't need long thinking
+request_token_limit:
+  7000 # hosted free tiers cap tokens per request/minute (Groq free: 8000, counting the
+  # reserved answer); ranking trims abstracts to fit. Remove on paid tiers
+context_tokens:
+  16000 # how much paper text the model reads when summarizing. On ollama, more needs more RAM
+  # (use 8192 on an 8 GB Mac); on free hosted tiers, too much hits per-minute token limits.
 
 # Before searching, the model rewrites your query: 1-5 keywords for the sources (abbreviations expanded,
 # filler dropped) and a sentence of intent for similarity and ranking. Falls back to your words on failure.
 rewrite_query: true
-rewrite_timeout_seconds: 15   # ~1 s on Groq; a local ollama model may need 30+
+rewrite_timeout_seconds: 15 # ~1 s on Groq; a local ollama model may need 30+
 
 # Paper sources need no keys, but OpenAlex (most art and social-science papers) rate-limits anonymous
 # searches hard. A free key from openalex.org fixes that: add OPENALEX_API_KEY=... to .env.
@@ -46,32 +48,32 @@ fields:
     openalex_field: 26 # Mathematics
     s2_field: Mathematics
   art:
-    label: Art & Design       # visual art, painting, sketching, music, design
-    arxiv_categories: [cs.GR, cs.SD, eess.AS]  # graphics, sound, audio/music: the computational side
+    label: Art & Design # visual art, painting, sketching, music, design
+    arxiv_categories: [cs.GR, cs.SD, eess.AS] # graphics, sound, audio/music: the computational side
     openalex_subfields:
-      - 1213                  # Visual Arts and Performing Arts
-      - 1210                  # Music
-      - 1704                  # Computer Graphics and Computer-Aided Design (where most design papers land)
-      - 1709                  # Human-Computer Interaction (design research, sketching tools)
+      - 1213 # Visual Arts and Performing Arts
+      - 1210 # Music
+      - 1704 # Computer Graphics and Computer-Aided Design (where most design papers land)
+      - 1709 # Human-Computer Interaction (design research, sketching tools)
     s2_field: Art
   social:
-    label: Social Sciences    # psychology, sociology, geography
-    arxiv_categories: [physics.soc-ph, cs.CY, cs.SI]  # social physics, computers & society, social networks
+    label: Social Sciences # psychology, sociology, geography
+    arxiv_categories: [physics.soc-ph, cs.CY, cs.SI] # social physics, computers & society, social networks
     openalex_subfields:
-      - 3200                  # General Psychology
-      - 3202                  # Applied Psychology
-      - 3203                  # Clinical Psychology
-      - 3204                  # Developmental and Educational Psychology
-      - 3205                  # Experimental and Cognitive Psychology
-      - 3206                  # Neuropsychology and Physiological Psychology
-      - 3207                  # Social Psychology
-      - 3312                  # Sociology and Political Science
-      - 3305                  # Geography, Planning and Development
+      - 3200 # General Psychology
+      - 3202 # Applied Psychology
+      - 3203 # Clinical Psychology
+      - 3204 # Developmental and Educational Psychology
+      - 3205 # Experimental and Cognitive Psychology
+      - 3206 # Neuropsychology and Physiological Psychology
+      - 3207 # Social Psychology
+      - 3312 # Sociology and Political Science
+      - 3305 # Geography, Planning and Development
     s2_field: [Psychology, Sociology, Geography]
 
 # Hard filters applied before any LLM call.
 filters:
-  min_year: 2015
+  min_year: 2020
   min_citations: 0
   exclude_keywords: [] # e.g. ["survey", "workshop"]
 
@@ -85,25 +87,25 @@ interests: |
 # What to put first. Order of importance: datasets > has code > CPU-friendly,
 # then a blend of relevance and "would impress a recruiter if I built it".
 priorities:
-  min_relevance: 5            # 0-10. The tiers below only reorder papers at least this relevant; the rest sort after
-  tier_order: [datasets, code, cpu]  # first wins: evaluated on min_datasets+ named datasets > has code > runs on CPU
-  code_first: true            # papers with a public repo (Papers with Code / Hugging Face) get the code tier
-  require_code: false         # true = hide papers without code entirely
-  min_datasets: 2             # prefer papers evaluated on at least this many datasets
-  prefer_cpu: true            # prefer papers you can replicate without a GPU
-  weights:                    # how the 0-10 signals blend inside each tier; missing signals drop out
-    relevance: 0.35           # LLM: fit with query + interests
-    recruiter: 0.35           # LLM: how impressive an implementation would look
-    similarity: 0.3           # embeddings: cosine similarity to query + interests (always available)
-    preference: 0.0           # your trained like/dislike model — raise once `python -m scripts.train_preference_model` has run
+  min_relevance: 5 # 0-10. The tiers below only reorder papers at least this relevant; the rest sort after
+  tier_order: [datasets, cpu, code] # first wins: evaluated on min_datasets+ named datasets > has code > runs on CPU
+  code_first: true # papers with a public repo (Papers with Code / Hugging Face) get the code tier
+  require_code: false # true = hide papers without code entirely
+  min_datasets: 1 # prefer papers evaluated on at least this many datasets
+  prefer_cpu: true # prefer papers you can replicate without a GPU
+  weights: # how the 0-10 signals blend inside each tier; missing signals drop out
+    relevance: 0.3 # LLM: fit with query + interests
+    recruiter: 0.6 # LLM: how impressive an implementation would look
+    similarity: 0.3 # embeddings: cosine similarity to query + interests (always available)
+    preference: 0.15 # your trained like/dislike model — raise once `python -m scripts.train_preference_model` has run
 
 # How many candidates to pull per source, how many the model reads, how many to show.
 candidates_per_source: 15
-rank_at_most: 16              # the most-similar candidates the LLM reads. On an 8 GB Mac a 4B model needs ~1-2 min per 8
-rank_timeout_seconds: 120     # give up on the LLM after this long and rank by similarity. Use ~600 on ollama
-source_timeout_seconds: 25    # skip a paper source that hasn't answered by then (OpenAlex can take 10-50 s)
+rank_at_most: 16 # the most-similar candidates the LLM reads. On an 8 GB Mac a 4B model needs ~1-2 min per 8
+rank_timeout_seconds: 120 # give up on the LLM after this long and rank by similarity. Use ~600 on ollama
+source_timeout_seconds: 25 # skip a paper source that hasn't answered by then (OpenAlex can take 10-50 s)
 show_top: 10
-eval_sample: 5                # random unshown candidates offered for rating, so the eval isn't only graded on the top 10
+eval_sample: 5 # random unshown candidates offered for rating, so the eval isn't only graded on the top 10
 
 # The exact shape of every summary. Markdown; Claude fills it in.
 summary_template: |
