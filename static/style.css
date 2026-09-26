@@ -174,7 +174,7 @@ footer { padding-bottom: 32px; font: 12px var(--mono); color: var(--faint); }
   #view-search > *, #view-library > * { grid-column: 1; }
   #view-search > .results-graph { grid-column: 2; grid-row: 1 / span 6; }
   #view-library > .lib-graph { grid-column: 2; grid-row: 1 / span 5; }
-  /* A screen-tall sticky column: the note, the map (at most ~45% of the screen, see mapHeight in
+  /* A screen-tall sticky column: the note, the map (at most ~38% of the screen, see mapHeight in
      app.js), then a clicked paper's card, which gets all the room left and scrolls within it. */
   .rg-sticky {
     position: sticky; top: 0; height: 100vh; padding-top: 24px;

@@ -460,8 +460,8 @@ async function drawResultsGraph(keys) {
   });
 }
 
-// The map beside a list: at most ~45% of the screen, so a clicked paper's card below it has room.
-const mapHeight = () => Math.round(Math.max(240, Math.min(innerHeight * 0.45, 460)));
+// The map beside a list: at most ~38% of the screen, so a clicked paper's card below it has room.
+const mapHeight = () => Math.round(Math.max(240, Math.min(innerHeight * 0.38, 400)));
 
 function flash(li) {
   li.scrollIntoView({ behavior: "smooth", block: "center" });
