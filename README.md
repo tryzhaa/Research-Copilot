@@ -6,10 +6,12 @@
 (5 searches an hour; what you save and rate stays in your own browser; the first visit after a quiet
 spell takes a moment to wake up, and a search takes ~40 s)
 
+![Search results for "finetuning", ranked with code, datasets and GPU needs, beside the similarity map of related papers](docs/screenshot.png)
+
 Finds research papers across arXiv, OpenAlex and Hugging Face Papers, and
 ranks them for one person: their standing interests, their past 👍/👎, and whether the paper
-has code, named datasets (each linked to where you can get it) and a CPU-sized compute budget. Summaries follow a template that ends
-in a concrete build plan.
+has code, named datasets (each linked to where you can get it) and a CPU-sized compute budget.
+Summaries follow a template that ends in a concrete build plan.
 
 It is also a small ranking system with an evaluation harness. Every search is recorded, your
 ratings label it, and `eval.run_eval` measures, on those labels, whether each stage of the
@@ -34,8 +36,8 @@ flowchart LR
 
 1. **Retrieve.** An LLM first rewrites the query into 1-5 source keywords (abbreviations expanded,
    filler dropped) and a sentence of intent that drives similarity and ranking. The sources are
-   queried concurrently with the keywords, under one shared deadline, merged across arXiv IDs, DOIs and titles,
-   and hard-filtered (year, keywords, citations). Code links come from the live Hugging Face
+   queried concurrently with the keywords under one shared deadline, merged across arXiv IDs, DOIs
+   and titles, and hard-filtered (year, keywords, citations). Code links come from the live Hugging Face
    Papers API and a local SQLite index of the Papers with Code archive (287k paper→code links, plus
    its catalogue of 15k datasets with homepages).
 2. **Embed.** Title + abstract go through `BAAI/bge-small-en-v1.5` (fastembed/ONNX, CPU). Vectors
@@ -46,11 +48,13 @@ flowchart LR
 4. **Rerank.** An LLM scores the shortlist for relevance and recruiter appeal, extracts named
    datasets and judges GPU need. Free tiers cap each request, so abstracts are shortened to fit, and
    the excerpt keeps the sentences that name datasets and results: papers name their benchmarks
-   near the end, and a plain cut kept the dataset names in 2 of 100 abstracts, the excerpt in 92. Hosted open models (Groq, Cerebras, Gemini, OpenRouter) take a few seconds; local
-   Ollama and Claude are also supported.
+   near the end, and a plain cut kept the dataset names in 2 of 100 abstracts, the excerpt in 92.
+   Hosted open models (Groq, Cerebras, Gemini, OpenRouter) take a few seconds; local Ollama and
+   Claude are also supported.
 5. **Blend.** Among papers relevant enough (`min_relevance`), hard tiers (has code, then named
-   datasets, then runs on a CPU, as ordered in `preferences.yaml`) come first, then a configurable weighted mean of the signals each paper has. When the LLM times out or fails, its signals drop out and results
-   fall back to similarity instead of arriving unranked.
+   datasets, then runs on a CPU, as ordered in `preferences.yaml`) come first, then a configurable
+   weighted mean of the signals each paper has. When the LLM times out or fails, its signals drop
+   out and results fall back to similarity instead of arriving unranked.
 
 ## Similarity graph
 
@@ -94,24 +98,24 @@ Design choices that keep the numbers honest:
 161 ratings (60 liked, 101 disliked) over 21 usable searches, after dropping 25 labels the LLM
 had seen. Mean ± standard error across searches:
 
-| Strategy | P@5 | NDCG@10 | MRR |
-|---|---|---|---|
-| random | 0.36 ± 0.05 | 0.70 ± 0.06 | 0.66 ± 0.06 |
-| recency | 0.41 ± 0.04 | 0.80 ± 0.05 | 0.79 ± 0.07 |
-| citations | 0.30 ± 0.05 | 0.64 ± 0.08 | 0.57 ± 0.09 |
-| similarity only | 0.33 ± 0.06 | 0.69 ± 0.06 | 0.59 ± 0.08 |
-| LLM relevance only | 0.43 ± 0.06 | **0.84 ± 0.05** | 0.84 ± 0.07 |
-| original heuristic (tiers + 50/50 LLM) | **0.44 ± 0.06** | **0.84 ± 0.05** | 0.82 ± 0.07 |
-| current pipeline (similarity + LLM) | 0.40 ± 0.06 | 0.83 ± 0.05 | **0.86 ± 0.07** |
-| preference model only (embeddings) | 0.39 ± 0.05 | 0.75 ± 0.05 | 0.70 ± 0.08 |
-| preference model only (embeddings + signals) | 0.39 ± 0.05 | 0.75 ± 0.05 | 0.70 ± 0.08 |
-| current pipeline + preference (0.15) | 0.40 ± 0.06 | 0.83 ± 0.05 | **0.86 ± 0.07** |
+| Strategy                                     | P@5             | NDCG@10         | MRR             |
+| -------------------------------------------- | --------------- | --------------- | --------------- |
+| random                                       | 0.36 ± 0.05     | 0.70 ± 0.06     | 0.66 ± 0.06     |
+| recency                                      | 0.41 ± 0.04     | 0.80 ± 0.05     | 0.79 ± 0.07     |
+| citations                                    | 0.30 ± 0.05     | 0.64 ± 0.08     | 0.57 ± 0.09     |
+| similarity only                              | 0.33 ± 0.06     | 0.69 ± 0.06     | 0.59 ± 0.08     |
+| LLM relevance only                           | 0.43 ± 0.06     | **0.84 ± 0.05** | 0.84 ± 0.07     |
+| original heuristic (tiers + 50/50 LLM)       | **0.44 ± 0.06** | **0.84 ± 0.05** | 0.82 ± 0.07     |
+| current pipeline (similarity + LLM)          | 0.40 ± 0.06     | 0.83 ± 0.05     | **0.86 ± 0.07** |
+| preference model only (embeddings)           | 0.39 ± 0.05     | 0.75 ± 0.05     | 0.70 ± 0.08     |
+| preference model only (embeddings + signals) | 0.39 ± 0.05     | 0.75 ± 0.05     | 0.70 ± 0.08     |
+| current pipeline + preference (0.15)         | 0.40 ± 0.06     | 0.83 ± 0.05     | **0.86 ± 0.07** |
 
 What this does and doesn't show:
 
 - **The LLM carries the ranking.** Every strategy built on its scores reaches NDCG ~0.83-0.84,
   about 2-3 standard errors above random (0.70). With twice the searches of the first run,
-  that gap is now clear; the differences *among* the LLM strategies are not.
+  that gap is now clear; the differences _among_ the LLM strategies are not.
 - **Embedding similarity alone is no better than random**, so it only chooses which candidates
   the LLM reads. The pipeline built on it matches, but doesn't beat, the original heuristic.
 - **The preference model doesn't improve ranking**, with or without the pipeline's signals, and
@@ -129,18 +133,18 @@ A logistic regression on your ratings (`python -m scripts.train_preference_model
 paper's embedding plus the signals the pipeline already computes: LLM relevance, recruiter
 score, has code, log(datasets+1), log(citations+1), needs GPU, and a flag for papers the LLM never
 scored. Features are standardized and the L2 strength is picked by an inner cross-validation.
-A paper's signals come from the first saved search where the LLM scored it *before* seeing its
+A paper's signals come from the first saved search where the LLM scored it _before_ seeing its
 label, since the ranker is shown your recent ratings. The model scores papers after the LLM has
 ranked them, when those signals exist.
 
 Cross-validated ROC-AUC on 161 ratings, identical folds (0.5 is chance):
 
-| Features | ROC-AUC |
-|---|---|
-| embeddings only | 0.62 ± 0.09 |
-| signals only (7 numbers) | **0.71 ± 0.09** |
-| embeddings + signals | 0.63 ± 0.08 |
-| signals + embeddings compressed by PCA (4-16 components) | 0.67-0.70 |
+| Features                                                 | ROC-AUC         |
+| -------------------------------------------------------- | --------------- |
+| embeddings only                                          | 0.62 ± 0.09     |
+| signals only (7 numbers)                                 | **0.71 ± 0.09** |
+| embeddings + signals                                     | 0.63 ± 0.08     |
+| signals + embeddings compressed by PCA (4-16 components) | 0.67-0.70       |
 
 Your preferences run through the explicit signals more than the text: seven numbers beat a
 384-dimensional embedding. Concatenating the two barely helps, because 384 embedding columns
@@ -198,8 +202,8 @@ are baked in, and it runs with `DEMO_MODE=1`:
   still shape the ranking, but the server blanks them in every response the demo sends.
 - **Rate-limited.** Each visitor gets `DEMO_SEARCHES_PER_HOUR` searches (default 5),
   `DEMO_SUMMARIES_PER_HOUR` summaries (5) and `DEMO_MAP_ADDS_PER_HOUR` papers added from the map
-  (20); all visitors share `DEMO_DAILY_LIMIT` model calls a
-  day (150), which keeps a free Groq key inside its quota. Counts live in memory, so they reset
+  (20); all visitors share `DEMO_DAILY_LIMIT` model calls a day (150), which keeps a free Groq
+  key inside its quota. Counts live in memory, so they reset
   when the instance restarts.
 
 Locally: `docker build -t research-copilot . && docker run -p 7860:7860 --env-file .env research-copilot`.
