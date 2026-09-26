@@ -448,7 +448,7 @@ async function drawResultsGraph(keys) {
   // 960 px and up: a column beside the results that stays in view (see #view-search in the CSS).
   const beside = matchMedia("(min-width: 960px)").matches;
   resultsGraph = drawGraph($("#rg"), data, {
-    height: beside ? Math.max(300, Math.min(innerHeight - 200, 520)) : 300,
+    height: beside ? mapHeight() : 300,
     big: d => d.on_screen,
     fill: (d, col) => d.on_screen ? col("--fg") : d.rating < 0 ? "none" : col("--faint"),
     onSelect: d => {
@@ -459,6 +459,9 @@ async function drawResultsGraph(keys) {
     },
   });
 }
+
+// The map beside a list: at most ~45% of the screen, so a clicked paper's card below it has room.
+const mapHeight = () => Math.round(Math.max(240, Math.min(innerHeight * 0.45, 460)));
 
 function flash(li) {
   li.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -496,7 +499,7 @@ async function drawLibraryGraph(list) {
   const beside = matchMedia("(min-width: 960px)").matches;
   if (data.nodes.length >= 2) {
     libGraph = drawGraph($("#lg"), data, {
-      height: beside ? Math.max(300, Math.min(innerHeight - 200, 520)) : 320,
+      height: beside ? mapHeight() : 320,
       big: d => d.on_screen,
       fill: (d, col) => d.on_screen ? col("--fg") : d.rating < 0 ? "none" : col("--faint"),
       onSelect: d => {
