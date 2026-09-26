@@ -7,3 +7,4 @@ data/
 .env
 eval/latest_results.*
 .coverage
+pytest-report.xml

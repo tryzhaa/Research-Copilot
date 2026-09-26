@@ -13,7 +13,20 @@ jobs:
           cache-dependency-path: requirements*.txt
       - run: pip install -r requirements-dev.txt
       - run: mypy copilot/ app.py eval/ scripts/
-      - run: pytest --cov=copilot --cov=eval --cov-report=term-missing
+      - run: pytest --cov=copilot --cov=eval --cov-report=term-missing --junitxml=pytest-report.xml
+      - name: Annotate failing tests
+        # Turns each failing test into a GitHub annotation, visible on the run page and via the API.
+        if: failure()
+        run: |
+          python - <<'EOF'
+          import xml.etree.ElementTree as ET
+          esc = lambda s: s.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+          for case in ET.parse("pytest-report.xml").iter("testcase"):
+              for bad in [*case.iter("failure"), *case.iter("error")]:
+                  tail = "\n".join((bad.text or "").strip().splitlines()[-25:])
+                  print(f"::error title={case.get('classname')}.{case.get('name')}::"
+                        + esc(f"{bad.get('message') or ''}\n{tail}")[:3000])
+          EOF
 
   eval:
     # A fresh ranking-quality report on every push, from the committed eval/dataset.json.
