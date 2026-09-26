@@ -12,6 +12,9 @@
 }
 
 * { box-sizing: border-box; }
+/* `hidden` must always win. The wide-screen layout gives #view-search display: grid, which
+   otherwise overrides it, and the whole search page, trending included, showed under Library. */
+[hidden] { display: none !important; }
 html { background: var(--bg); }
 body {
   margin: 0;
