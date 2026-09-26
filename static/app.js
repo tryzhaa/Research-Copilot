@@ -14,6 +14,91 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
+// ---------- your library: on the server locally, in this browser on the public demo ----------
+// Both versions answer the same calls. Writes return the paper's {saved, folders} and every
+// folder as {all: [{name, count}]}, like the server's /api/save and /api/folder.
+
+const serverLib = {
+  where: "server",
+  entries: async () => (await api("/api/library")).entries,
+  folders: async () => (await api("/api/folders")).folders,
+  save: (p, saved) => api("/api/save", { paper: p, saved }),
+  folder: (p, name, add) => api("/api/folder", { paper: p, folder: name, add }),
+  rate: (p, rating) => api("/api/rate", { paper: p, rating }),
+  remove: key => api("/api/library/remove", { key }),
+  noteSummary: () => {},        // the server keeps summaries itself
+  overlay: p => p,              // server rows already carry your rating, saved, folders
+  searchContext: () => ({}),    // the server reads your ratings itself
+  mapContext: () => ({}),
+};
+
+// A visitor's library: everything they save, rate, file or summarize, kept in localStorage.
+// No account and nothing on the server; clearing the site's data erases it.
+const browserLib = (() => {
+  const KEY = "research-copilot:library:v1";
+  let data = {};
+  let persisted = true;         // false when the browser won't store (private window, blocked site data)
+  const read = () => {
+    try { data = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch { persisted = false; }
+  };
+  const write = () => {
+    try { localStorage.setItem(KEY, JSON.stringify(data)); persisted = true; } catch { persisted = false; }
+  };
+  read();
+  addEventListener("storage", e => { if (e.key === KEY) read(); });  // another tab changed it
+
+  const PAPER_ONLY = ["rating", "saved", "folders", "summary", "full_text"];
+  function upsert(p, changes) {
+    const now = Date.now() / 1000;
+    const en = data[p.key] || { key: p.key, rating: 0, saved: false, folders: [], summary: "", full_text: false, added: now };
+    const paper = Object.fromEntries(Object.entries(p).filter(([k]) => !PAPER_ONLY.includes(k)));
+    Object.assign(en, { paper, bibtex: p.bibtex || en.bibtex || "" }, changes, { updated: now });
+    data[p.key] = en;
+    write();
+    return en;
+  }
+  const folders = () => {
+    const counts = {};
+    Object.values(data).forEach(en => (en.folders || []).forEach(f => { counts[f] = (counts[f] || 0) + 1; }));
+    return Object.entries(counts).map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+  };
+  const state = en => ({ saved: en.saved, folders: en.folders, all: folders() });
+  const recent = sign => Object.values(data).filter(en => Math.sign(en.rating) === sign)
+    .sort((a, b) => a.updated - b.updated).slice(-15).map(en => en.paper.title);
+
+  return {
+    where: "browser",
+    get persisted() { return persisted; },
+    entries: async () => Object.values(data).sort((a, b) => b.updated - a.updated),
+    folders: async () => folders(),
+    save: async (p, saved) => state(upsert(p, saved ? { saved: true } : { saved: false, folders: [] })),
+    folder: async (p, name, add) => {
+      name = name.split(/\s+/).filter(Boolean).join(" ").slice(0, 60);
+      if (!name) throw new Error("folder name is empty");
+      const current = (data[p.key]?.folders || []).filter(f => f !== name);
+      const next = add ? [...current, name] : current;
+      next.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+      return state(upsert(p, add ? { folders: next, saved: true } : { folders: next }));
+    },
+    rate: async (p, rating) => { upsert(p, { rating }); },
+    remove: async key => { delete data[key]; write(); },
+    noteSummary: (p, d) => { upsert(p, { summary: d.summary, full_text: d.full_text }); },
+    overlay: p => {
+      const en = data[p.key];
+      return { ...p, rating: en?.rating || 0, saved: !!en?.saved, folders: en?.folders || [] };
+    },
+    searchContext: () => ({ liked: recent(1), disliked: recent(-1) }),
+    mapContext: () => {
+      const mine = Object.values(data).filter(en => en.saved || en.rating);
+      return { papers: mine.map(en => ({ ...en.paper, key: en.key })),
+               ratings: Object.fromEntries(mine.filter(en => en.rating).map(en => [en.key, en.rating])) };
+    },
+  };
+})();
+
+let lib = serverLib;  // init() switches to browserLib on the public demo
+
 async function api(path, body) {
   const opts = body === undefined ? {} : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -63,6 +148,7 @@ function authorLine(authors = []) {
 }
 
 function row(p, entry = null, { trending = false, note = "" } = {}) {
+  if (!entry) p = lib.overlay(p);  // library rows are built from the entry itself
   papers.set(p.key, p);
   // Ranked papers show their relevance score. Only the trending list shows upvotes there: search
   // results from Hugging Face carry upvotes too, and ▲ in a search or the library reads as "trending".
@@ -168,7 +254,7 @@ function renderPicker(li, p) {
 }
 
 async function setFolder(li, p, folder, add) {
-  const d = await api("/api/folder", { paper: p, folder, add });
+  const d = await lib.folder(p, folder, add);
   p.folders = d.folders;
   p.saved = d.saved;
   showSaved(li, p);
@@ -324,7 +410,7 @@ async function drawMap() {
   if (!window.d3) return (note.textContent = "couldn't load the graph library (d3). check your connection.");
   note.textContent = "building the map…";
   const keys = $$("#results .paper, #sample-list .paper").map(li => li.dataset.key);
-  const data = await api("/api/map", { keys });
+  const data = await api("/api/map", { keys, ...lib.mapContext() });
   if (!data.nodes.length) {
     box.innerHTML = "";
     return (note.textContent = "nothing to map yet. run a search or rate a few papers.");
@@ -347,7 +433,7 @@ async function drawResultsGraph(keys) {
   resultsGraph = null;
   $("#rg-card").hidden = true;
   if (!window.d3 || !keys.length) return (wrap.hidden = true);
-  const data = await api("/api/map", { keys, include_library: false, limit: keys.length + 35 });
+  const data = await api("/api/map", { keys, include_library: false, limit: keys.length + 35, ...lib.mapContext() });
   if (data.nodes.length < 2) return (wrap.hidden = true);
   wrap.hidden = false;
   const related = data.nodes.length - data.nodes.filter(n => n.on_screen).length;
@@ -392,7 +478,7 @@ async function drawLibraryGraph(list) {
   let data;
   try {
     data = await api("/api/map", { keys: list.map(en => en.key), include_library: false,
-                                   limit: list.length + 40, related: 12 });
+                                   limit: list.length + 40, related: 12, ...lib.mapContext() });
   } catch (err) {
     return ($("#lg-note").textContent = err.message);
   }
@@ -461,7 +547,9 @@ async function summarizeRow(li, p, refresh = false) {
   btn.disabled = true;
   const stop = ticker(s => { btn.textContent = `reading · ${s}s`; });
   try {
-    showSummary(li, await api("/api/summarize", { paper: p, refresh }));
+    const d = await api("/api/summarize", { paper: p, refresh });
+    lib.noteSummary(p, d);
+    showSummary(li, d);
     refreshLibCount();
   } catch (err) {
     box.hidden = false;
@@ -492,14 +580,14 @@ document.addEventListener("click", async e => {
         return;
       case "save": {
         if (p.saved) return togglePicker(li, p, $(".folder-picker", li).hidden);
-        const d = await api("/api/save", { paper: p, saved: true });
+        const d = await lib.save(p, true);
         Object.assign(p, { saved: d.saved, folders: d.folders });
         showSaved(li, p);
         syncLibrary(p, d.all);
         return togglePicker(li, p, true);  // saved; now optionally file it
       }
       case "unsave": {
-        const d = await api("/api/save", { paper: p, saved: false });
+        const d = await lib.save(p, false);
         Object.assign(p, { saved: d.saved, folders: d.folders });
         showSaved(li, p);
         togglePicker(li, p, false);
@@ -509,13 +597,13 @@ document.addEventListener("click", async e => {
       case "down": {
         const value = btn.dataset.act === "up" ? 1 : -1;
         p.rating = p.rating === value ? 0 : value;
-        await api("/api/rate", { paper: p, rating: p.rating });
+        await lib.rate(p, p.rating);
         $('[data-act="up"]', li).classList.toggle("on", p.rating > 0);
         $('[data-act="down"]', li).classList.toggle("on", p.rating < 0);
         return refreshLibCount();
       }
       case "remove":
-        await api("/api/library/remove", { key: p.key });
+        await lib.remove(p.key);
         libEntries = libEntries.filter(en => en.key !== p.key);
         li.remove();
         return refreshLibCount();
@@ -550,7 +638,8 @@ $("#search-form").addEventListener("submit", async e => {
   $("#results-graph").hidden = true;
   const stop = ticker(s => setStatus(`searching, then ${modelName} reads the shortlist (a few minutes on a local model) · ${s}s`, true));
   try {
-    const data = await api("/api/search", { query, fields, use_s2: $("#use-s2").checked, code_only: $("#code-only").checked });
+    const data = await api("/api/search", { query, fields, use_s2: $("#use-s2").checked, code_only: $("#code-only").checked,
+                                            ...lib.searchContext() });
     stop();
     const index = { building: " · code index still building, using hugging face links only", missing: " · code index not built" }[data.code_index] || "";
     const searched = data.rewrite && data.rewrite.keywords.toLowerCase() !== query.toLowerCase()
@@ -595,19 +684,23 @@ function renderLibrary() {
 
 async function loadLibrary() {
   [libEntries, allFolders] = await Promise.all([
-    api("/api/library").then(d => d.entries), api("/api/folders").then(d => d.folders),
+    lib.entries(), lib.folders(),
   ]);
   renderFolderFilters();
   renderLibrary();
   showLibCount();
+  const where = $("#lib-where");
+  where.hidden = lib.where !== "browser";
+  where.textContent = lib.persisted === false
+    ? "this browser isn't letting the page store anything, so your library will be gone when you close the tab."
+    : "your library lives in this browser only: no account, nothing stored on the server. clearing this site's data erases it.";
 }
 
 const showLibCount = () => { $("#lib-count").textContent = libEntries.filter(en => en.saved).length || ""; };
 
 async function refreshLibCount() {
   try {
-    const { entries } = await api("/api/library");
-    libEntries = entries;
+    libEntries = await lib.entries();
     showLibCount();
   } catch {}
 }
@@ -651,6 +744,7 @@ $$("nav button").forEach(b => b.addEventListener("click", () => showView(b.datas
 (async function init() {
   try {
     const prefs = await api("/api/prefs");
+    if (prefs.demo) lib = browserLib;  // before anything reads the library
     const remembered = store.get("fields");
     $("#fields").innerHTML = Object.entries(prefs.fields).map(([key, label]) => `
       <label class="toggle"><input type="checkbox" value="${esc(key)}" ${!remembered || remembered.includes(key) ? "checked" : ""}><span>${esc(label)}</span></label>
@@ -661,11 +755,11 @@ $$("nav button").forEach(b => b.addEventListener("click", () => showView(b.datas
       $("#" + id).addEventListener("change", e => store.set(id, e.target.checked));
     }
     modelName = prefs.model;
-    allFolders = (await api("/api/folders")).folders;
+    allFolders = await lib.folders();
     if (prefs.demo) {
-      // Public demo: read-only, rate-limited. CSS hides everything that writes to the shared library.
+      // Public demo: rate-limited; each visitor's library lives in their own browser (browserLib).
       document.body.classList.add("demo");
-      $("#foot").innerHTML = `public demo · read-only · ${prefs.demo.searches_per_hour} searches an hour · `
+      $("#foot").innerHTML = `public demo · your library stays in this browser · ${prefs.demo.searches_per_hour} searches an hour · `
         + `${esc(prefs.model)} via ${esc(prefs.provider)} · `
         + `<a href="https://github.com/tryzhaa/Research-Copilot" target="_blank" rel="noopener">run it yourself ↗</a>`;
     } else {

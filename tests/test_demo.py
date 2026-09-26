@@ -109,3 +109,31 @@ def test_demo_similar_panel_has_no_similarity_numbers(demo_mode: TestClient, mon
         {"key": "k1", "title": "Near", "url": "u", "year": 2021, "similarity": 0.93, "score": 0.2, "direct": True, "via": None}])
     [item] = demo_mode.post("/api/similar", json={"paper": {"title": "Deep Sets"}}).json()["similar"]
     assert item["similarity"] is None and "score" not in item and item["title"] == "Near"
+
+
+def test_demo_serves_no_server_library(demo_mode: TestClient) -> None:
+    assert demo_mode.get("/api/library").json() == {"entries": []}
+    assert demo_mode.get("/api/folders").json() == {"folders": []}
+
+
+def test_visitor_feedback_is_capped_and_trimmed() -> None:
+    from app import visitor_titles
+    titles = [f"t{i}" for i in range(40)] + ["  ", "x" * 1000, 7]  # type: ignore[list-item]
+    out = visitor_titles(titles)
+    assert len(out) <= 15 and all(len(t) <= 300 for t in out) and "  " not in out
+
+
+def test_demo_map_uses_the_visitors_library_not_the_servers(demo_mode: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from copilot import graph
+    seen: dict = {}
+    monkeypatch.setattr(graph, "with_papers", lambda extra: seen.setdefault("extra", extra) and "G")
+    monkeypatch.setattr(graph, "neighbourhood", lambda focus, limit, g: seen.update(focus=focus, g=g) or {
+        "nodes": [{"key": "mine"}, {"key": "other"}], "links": [], "total_papers": 2})
+    monkeypatch.setattr(graph, "related", lambda keys, exclude, n, g: seen.update(exclude=exclude) or [])
+    body = {"keys": ["onscreen"], "related": 5, "papers": [{"key": "mine", "title": "My saved paper"}],
+            "ratings": {"mine": 5, "gone": -1}}
+    data = demo_mode.post("/api/map", json=body).json()
+    assert set(seen["extra"]) == {"mine"} and seen["g"] == "G"
+    assert seen["focus"] == ["onscreen", "mine"]               # the map tab includes their library
+    assert seen["exclude"] == {"mine", "gone"}                 # nothing they've rated is suggested
+    assert {n["key"]: n["rating"] for n in data["nodes"]} == {"mine": 1, "other": 0}  # clamped to ±1

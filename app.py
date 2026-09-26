@@ -89,6 +89,15 @@ class SearchIn(BaseModel):
     fields: list[str]
     use_s2: bool = False
     code_only: bool = False
+    # Demo only: the visitor's recent liked / disliked titles, from the library in their browser,
+    # so their ratings steer their own ranking the way yours do locally.
+    liked: list[str] = []
+    disliked: list[str] = []
+
+
+def visitor_titles(titles: list[str]) -> list[str]:
+    """What a visitor may send the ranker: their 15 most recent, each trimmed."""
+    return [t.strip()[:300] for t in titles[-15:] if isinstance(t, str) and t.strip()]
 
 
 class PaperIn(BaseModel):
@@ -126,6 +135,9 @@ class MapIn(BaseModel):
     include_library: bool = True  # the map tab adds your library; the graph beside results doesn't
     limit: int = 250
     related: int = 0              # also return this many similar papers you haven't rated or saved
+    # Demo only: the visitor's library, from their browser (the server keeps none of it).
+    papers: list[dict] = []       # their saved and rated papers, to place on the map
+    ratings: dict[str, int] = {}  # key -> -1 / 1
 
 
 @app.get("/")
@@ -187,7 +199,8 @@ def search(body: SearchIn, request: Request) -> dict:
         errors.append(e.to_dict())  # shortlist falls back to source order
     pool = papers
     papers = shortlist(papers, prefs.get("rank_at_most", 24), priorities)
-    liked, disliked = library.rated_titles()
+    liked, disliked = ((visitor_titles(body.liked), visitor_titles(body.disliked)) if demo.enabled()
+                       else library.rated_titles())
     try:
         papers = rank_with_timeout(papers, ranker_query, prefs, liked, disliked, prefs.get("rank_timeout_seconds", 120))
     except RankingError as e:
@@ -254,11 +267,22 @@ def similar(body: SimilarIn) -> dict:
 
 @app.post("/api/map")
 def paper_map(body: MapIn) -> dict:
-    entries = library.entries()
-    ratings = {e["key"]: e["rating"] for e in entries}
+    if demo.enabled():
+        # The visitor's library comes with the request: their browser holds it, the server doesn't.
+        visitor = {p["key"]: p for p in body.papers[:300] if isinstance(p.get("key"), str)}
+        ratings = {k: max(-1, min(1, v)) for k, v in list(body.ratings.items())[:1000]}
+        library_keys, known = list(visitor), set(visitor) | set(ratings)
+    else:
+        entries = library.entries()
+        ratings = {e["key"]: e["rating"] for e in entries}
+        library_keys = [e["key"] for e in entries]
+        known = {e["key"] for e in entries if e.get("rating") or e.get("saved")}
+        visitor = {}
     try:
-        focus = body.keys + ([e["key"] for e in entries] if body.include_library else [])
-        data = graph.neighbourhood(focus, limit=min(body.limit, 400))
+        g = graph.with_papers(visitor) if visitor else None
+        focus = body.keys + (library_keys if body.include_library else [])
+        data = graph.neighbourhood(focus, limit=min(body.limit, 400), g=g)
+        found = graph.related(body.keys, exclude=known, n=min(body.related, 30), g=g) if body.related else []
     except EmbeddingError as e:
         raise HTTPException(502, str(e))
     for n in data["nodes"]:
@@ -266,8 +290,6 @@ def paper_map(body: MapIn) -> dict:
         n["on_screen"] = n["key"] in body.keys
     if body.related:
         # The library's map lists these under it, as rows you can like or save.
-        known = {e["key"] for e in entries if e.get("rating") or e.get("saved")}
-        found = graph.related(body.keys, exclude=known, n=min(body.related, 30))
         data["related"] = [serialize(Paper.from_dict(p)) | {"via": p["via"]} | ({} if demo.enabled() else {"sim": p["sim"]})
                            for p in found]
     return data
@@ -298,11 +320,13 @@ def folder(body: FolderIn, _: None = Depends(owner_only)) -> dict:
 
 @app.get("/api/folders")
 def get_folders() -> dict:
-    return {"folders": library.folders()}
+    return {"folders": [] if demo.enabled() else library.folders()}  # visitors' folders live in their browser
 
 
 @app.get("/api/library")
 def get_library() -> dict:
+    if demo.enabled():
+        return {"entries": []}  # a visitor's library lives in their browser, not on the server
     return {"entries": [e | {"bibtex": to_paper(e["paper"]).bibtex()} for e in library.entries()]}
 
 

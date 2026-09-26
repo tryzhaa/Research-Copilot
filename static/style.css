@@ -168,12 +168,12 @@ footer { padding-bottom: 32px; font: 12px var(--mono); color: var(--faint); }
 #view-library { max-width: calc(var(--width) - 48px); }
 @media (min-width: 960px) {
   #view-search, #view-library { display: grid; grid-template-columns: minmax(0, calc(var(--width) - 48px)) minmax(260px, 1fr); column-gap: 56px; }
-  /* The library's rows: tabs, folders, similar papers, then your papers. Only the last row grows,
+  /* The library's rows: tabs, where it's stored (demo), folders, similar papers, then your papers. Only the last row grows,
      so the screen-tall map column never opens gaps between them when the list is short. */
-  #view-library { max-width: none; grid-template-rows: auto auto auto 1fr; }
+  #view-library { max-width: none; grid-template-rows: auto auto auto auto 1fr; }
   #view-search > *, #view-library > * { grid-column: 1; }
   #view-search > .results-graph { grid-column: 2; grid-row: 1 / span 6; }
-  #view-library > .lib-graph { grid-column: 2; grid-row: 1 / span 4; }
+  #view-library > .lib-graph { grid-column: 2; grid-row: 1 / span 5; }
   /* A screen-tall sticky column. Equal rows above and below keep the graph itself at mid-screen
      as you scroll; the note sits in the top row and a clicked paper's card in the bottom one. */
   .rg-sticky {
@@ -216,9 +216,11 @@ footer { padding-bottom: 32px; font: 12px var(--mono); color: var(--faint); }
   .lib-head { padding-top: 48px; flex-direction: column; }
 }
 
-/* ---------- public demo: read-only ---------- */
-.demo [data-act="save"], .demo [data-act="remove"], .demo [data-act="regen"],
-.demo .actions .rate, .demo nav [data-view="library"], .demo #sample { display: none !important; }
+/* ---------- public demo ---------- */
+/* Visitors keep a library in their browser, so saving, rating and folders work; only the
+   owner's eval sample and paid regeneration stay hidden. */
+.demo [data-act="regen"], .demo #sample { display: none !important; }
+#lib-where { margin: -4px 0 14px; font: 12px var(--mono); color: var(--faint); }
 #foot a { color: var(--muted); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 #foot a:hover { color: var(--fg); }
 

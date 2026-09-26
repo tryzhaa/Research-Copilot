@@ -177,9 +177,11 @@ fetched, reranked and shown.
 The `Dockerfile` builds a public demo image: the Papers with Code index and the embedding model
 are baked in, and it runs with `DEMO_MODE=1`:
 
-- **Read-only.** Rating, saving, folders and removing return 403 and are hidden: one process
-  serves every visitor, so writes would leak between strangers and steer each other's rankings.
-  `library.json`, `.env` and `data/` never enter the image (`.dockerignore`, `.gcloudignore`).
+- **Each visitor's library stays in their browser.** Saving, rating, folders, summaries and the
+  library map work, stored in localStorage with no account; their recent likes and dislikes are
+  sent with each search to steer their own ranking. The server keeps none of it, and its write
+  endpoints return 403, so strangers never see or steer each other's libraries. `library.json`,
+  `.env` and `data/` never enter the image (`.dockerignore`, `.gcloudignore`).
 - **Private signals stay private.** CPU/GPU, recruiter score and reason, similarity and preference
   still shape the ranking, but the server blanks them in every response the demo sends.
 - **Rate-limited.** Each visitor gets `DEMO_SEARCHES_PER_HOUR` searches (default 5) and

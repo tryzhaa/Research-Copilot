@@ -53,15 +53,18 @@ def paper_url(key: str, paper: dict) -> str:
     return "https://scholar.google.com/scholar?q=" + str(paper.get("title", "")).replace(" ", "+")
 
 
+FIELDS = ("title", "abstract", "year", "url", "code_url", "source")
+
+
 def _collect(directory: Path = snapshots.DIR) -> dict[str, dict]:
     """key → paper metadata. Later searches overwrite earlier ones; the library wins over both."""
     papers: dict[str, dict] = {}
     for s in snapshots.load_all(directory):
         for c in s["candidates"]:
-            papers[c["key"]] = {k: c.get(k) for k in ("title", "abstract", "year", "url", "code_url", "source")}
+            papers[c["key"]] = {k: c.get(k) for k in FIELDS}
     for e in library.entries():
         p = e["paper"]
-        papers[e["key"]] = {k: p.get(k) for k in ("title", "abstract", "year", "url", "code_url", "source")}
+        papers[e["key"]] = {k: p.get(k) for k in FIELDS}
     for key, p in papers.items():
         p["url"] = paper_url(key, p)
     return papers
@@ -97,6 +100,24 @@ def current(directory: Path = snapshots.DIR) -> Graph:
         if _cache is None or _cache[0] != sig:
             _cache = (sig, build(_collect(directory)))
         return _cache[1]
+
+
+def with_papers(extra: dict[str, dict], directory: Path = snapshots.DIR) -> Graph:
+    """The graph, plus papers it hasn't seen: a demo visitor's library lives in their browser,
+    and a restarted server has lost the searches that put those papers on its map.
+    Only the listed fields are used, trimmed, so a request can't make the server embed essays."""
+    g = current(directory)
+    missing = {k: p for k, p in extra.items() if k not in g.index}
+    if not missing:
+        return g
+    papers = _collect(directory)
+    for key, p in missing.items():
+        papers[key] = {"title": str(p.get("title") or "")[:500], "abstract": str(p.get("abstract") or "")[:4000],
+                       "year": p.get("year") if isinstance(p.get("year"), int) else None,
+                       "url": str(p.get("url") or ""), "code_url": str(p.get("code_url") or ""),
+                       "source": str(p.get("source") or "")}
+        papers[key]["url"] = paper_url(key, papers[key])
+    return build(papers)
 
 
 def personalized_pagerank(adj: sparse.csr_matrix, seed: np.ndarray, restart: float = RESTART,

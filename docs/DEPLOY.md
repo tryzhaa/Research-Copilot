@@ -8,8 +8,9 @@ by step. Steps 1-6 are one-time setup; after that, Step 7 is the whole redeploy.
 - **`Dockerfile`**: builds the image with the Papers with Code index (287k paper→code links) and
   the `bge-small` embedding model baked in, so a cold start doesn't redownload them. Runs as an
   unprivileged user with `DEMO_MODE=1`.
-- **Demo mode** (`copilot/demo.py`): the public copy is read-only (rating, saving, folders and
-  removing return 403) and rate-limited: 5 searches and 5 summaries per visitor per hour, 150 model
+- **Demo mode** (`copilot/demo.py`): each visitor's library (saves, ratings, folders,
+  summaries) lives in their own browser's localStorage, and the server's write endpoints return
+  403, so visitors never share state. It's rate-limited: 5 searches and 5 summaries per visitor per hour, 150 model
   calls a day in total. Limits are configurable with `DEMO_SEARCHES_PER_HOUR`,
   `DEMO_SUMMARIES_PER_HOUR` and `DEMO_DAILY_LIMIT`. The owner's private signals (CPU/GPU,
   recruiter score and reason, similarity, preference) still shape the ranking but are blanked in
