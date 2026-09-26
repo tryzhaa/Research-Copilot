@@ -60,3 +60,11 @@ def test_fallback_order_is_by_similarity_when_ranker_is_missing() -> None:
     ps = [paper("low", similarity=0.1), paper("high", similarity=0.9), paper("mid", similarity=0.5)]
     order = prioritize(ps, {"code_first": False, "prefer_cpu": False})
     assert [p.title for p in order] == ["high", "mid", "low"]
+
+
+def test_when_code_comes_first_relevant_papers_with_code_get_read_first() -> None:
+    ps = [paper("a", similarity=0.9), paper("off-topic code", similarity=0.1, code_url="x"),
+          paper("relevant code", similarity=0.6, code_url="y"), paper("d", similarity=0.7)]
+    pr = {"tier_order": ["code", "datasets", "cpu"], "min_relevance": 5}
+    assert [p.title for p in shortlist(ps, 2, pr)] == ["relevant code", "a"]
+    assert [p.title for p in shortlist(ps, 2, pr | {"tier_order": ["datasets", "code"]})] == ["a", "d"]

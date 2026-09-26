@@ -86,11 +86,11 @@ interests: |
   computational creativity. Prefer rigorous work with clear methods.
   Deprioritize incremental benchmark papers.
 
-# What to put first. Order of importance: datasets > has code > CPU-friendly,
+# What to put first. Order of importance: has code (Papers with Code) > datasets > CPU-friendly,
 # then a blend of relevance and "would impress a recruiter if I built it".
 priorities:
   min_relevance: 5 # 0-10. The tiers below only reorder papers at least this relevant; the rest sort after
-  tier_order: [datasets, cpu, code] # first wins: evaluated on min_datasets+ named datasets > has code > runs on CPU
+  tier_order: [code, datasets, cpu] # first wins: has code (Papers with Code / HF) > min_datasets+ named datasets > runs on CPU
   code_first: true # papers with a public repo (Papers with Code / Hugging Face) get the code tier
   require_code: false # true = hide papers without code entirely
   min_datasets: 1 # prefer papers evaluated on at least this many datasets

@@ -180,8 +180,16 @@ def prioritize(papers: list[Paper], priorities: dict) -> list[Paper]:
 
 
 def shortlist(papers: list[Paper], limit: int, priorities: dict) -> list[Paper]:
-    """Pick which candidates the LLM reads: the most similar to query + interests. Having code
-    doesn't buy a slot; a relevant paper with code gets its tier boost after ranking.
+    """Pick which candidates the LLM reads: the most similar to query + interests. When code
+    comes first (`code` leads tier_order), relevant papers with code (similarity in the
+    min_relevance range) take the slots first, so the ones ranked first get read, with datasets
+    and a recruiter score; an off-topic paper never buys a slot with code.
     Without similarity scores, source order holds."""
-    return sorted(papers, key=lambda p: p.similarity if p.similarity is not None else float("-inf"),
-                  reverse=True)[:limit]  # stable, so ties keep source order
+    rng = similarity_range(papers)
+    code_leads = (priorities.get("tier_order", DEFAULT_TIER_ORDER) or [None])[0] == "code" \
+        and priorities.get("code_first", True)
+
+    def key(p: Paper) -> tuple[bool, float]:
+        sim = p.similarity if p.similarity is not None else float("-inf")
+        return (code_leads and p.has_code and is_relevant(p, priorities, rng), sim)
+    return sorted(papers, key=key, reverse=True)[:limit]  # stable, so ties keep source order
