@@ -82,47 +82,64 @@ Design choices that keep the numbers honest:
 
 ### Results so far
 
-56 ratings (26 liked, 30 disliked) over 11 searches, after dropping 14 labels the LLM had seen.
-Mean ± standard error across searches:
+161 ratings (60 liked, 101 disliked) over 21 usable searches, after dropping 25 labels the LLM
+had seen. Mean ± standard error across searches:
 
 | Strategy | P@5 | NDCG@10 | MRR |
 |---|---|---|---|
-| random | 0.43 ± 0.05 | 0.86 ± 0.05 | 0.83 ± 0.06 |
-| recency | 0.47 ± 0.04 | 0.89 ± 0.04 | 0.86 ± 0.07 |
-| citations | 0.40 ± 0.06 | 0.84 ± 0.07 | 0.79 ± 0.11 |
-| similarity only | 0.38 ± 0.08 | 0.84 ± 0.08 | 0.78 ± 0.11 |
-| LLM relevance only | **0.49 ± 0.05** | 0.92 ± 0.04 | 0.89 ± 0.07 |
-| original heuristic (tiers + 50/50 LLM) | 0.47 ± 0.08 | **0.94 ± 0.05** | **0.92 ± 0.08** |
-| current pipeline (similarity + LLM) | 0.45 ± 0.07 | 0.92 ± 0.06 | **0.92 ± 0.08** |
-| preference model only | 0.47 ± 0.04 | 0.91 ± 0.05 | 0.89 ± 0.08 |
-| current pipeline + preference (0.15) | 0.45 ± 0.07 | 0.92 ± 0.06 | **0.92 ± 0.08** |
+| random | 0.36 ± 0.05 | 0.70 ± 0.06 | 0.66 ± 0.06 |
+| recency | 0.41 ± 0.04 | 0.80 ± 0.05 | 0.79 ± 0.07 |
+| citations | 0.30 ± 0.05 | 0.64 ± 0.08 | 0.57 ± 0.09 |
+| similarity only | 0.33 ± 0.06 | 0.69 ± 0.06 | 0.59 ± 0.08 |
+| LLM relevance only | 0.43 ± 0.06 | **0.84 ± 0.05** | 0.84 ± 0.07 |
+| original heuristic (tiers + 50/50 LLM) | **0.44 ± 0.06** | **0.84 ± 0.05** | 0.82 ± 0.07 |
+| current pipeline (similarity + LLM) | 0.40 ± 0.06 | 0.83 ± 0.05 | **0.86 ± 0.07** |
+| preference model only (embeddings) | 0.39 ± 0.05 | 0.75 ± 0.05 | 0.70 ± 0.08 |
+| preference model only (embeddings + signals) | 0.39 ± 0.05 | 0.75 ± 0.05 | 0.70 ± 0.08 |
+| current pipeline + preference (0.15) | 0.40 ± 0.06 | 0.83 ± 0.05 | **0.86 ± 0.07** |
 
 What this does and doesn't show:
 
-- **The LLM carries the ranking.** The four strategies that use its scores lead on NDCG and
-  MRR, but their gaps to random are one to two standard errors: with 11 searches this is a
-  direction, not a result.
-- **Embedding similarity alone is no better than random** (worse on every metric). Similarity
-  to the query plus stated interests doesn't capture what gets liked, so it now only chooses
-  which candidates the LLM reads, and the pipeline built on it doesn't beat the original
-  hand-tuned heuristic.
-- **The preference model isn't useful yet**: cross-validated ROC-AUC 0.59 ± 0.15 (5 folds,
-  0.5 is chance), and at weight 0.15 it changed no ranked list. It stays at weight 0.
-- P@10 (in `eval/results.csv`) is ~0.29-0.30 for every strategy: each search has only about
-  five rated candidates, so any top 10 contains nearly all of them, and order can't matter.
+- **The LLM carries the ranking.** Every strategy built on its scores reaches NDCG ~0.83-0.84,
+  about 2-3 standard errors above random (0.70). With twice the searches of the first run,
+  that gap is now clear; the differences *among* the LLM strategies are not.
+- **Embedding similarity alone is no better than random**, so it only chooses which candidates
+  the LLM reads. The pipeline built on it matches, but doesn't beat, the original heuristic.
+- **The preference model doesn't improve ranking**, with or without the pipeline's signals, and
+  at weight 0.15 it leaves the pipeline's metrics unchanged (details below).
+- P@10 (in `eval/results.csv`) barely moves between strategies: with ~5 rated candidates per
+  search, any top 10 contains nearly all of them.
 
-The next step is more labels, especially on the random unshown candidates, before tuning
-anything against these numbers. The metric code is tested against hand-computed values, and a
-synthetic end-to-end test checks that each strategy ranks where it was constructed to.
+`eval/results.csv` keeps every run with its commit. The metric code is tested against
+hand-computed values, and a synthetic end-to-end test checks that each strategy ranks where it
+was constructed to.
 
 ## The preference model
 
-A logistic regression on frozen embeddings, trained on your ratings
-(`python -m scripts.train_preference_model`, which reports stratified k-fold ROC-AUC first).
-With tens to low hundreds of labels, a 384-weight linear probe is about the capacity the data
-supports; fine-tuning the 33M-parameter embedding model on the same labels would mostly
-memorize them (an assumption, not yet measured here). It enters the blend at
-`weights.preference: 0` until the evaluation shows it helps, which it doesn't yet (above).
+A logistic regression on your ratings (`python -m scripts.train_preference_model`) over the
+paper's embedding plus the signals the pipeline already computes: LLM relevance, recruiter
+score, has code, log(datasets+1), log(citations+1), needs GPU, and a flag for papers the LLM never
+scored. Features are standardized and the L2 strength is picked by an inner cross-validation.
+A paper's signals come from the first saved search where the LLM scored it *before* seeing its
+label, since the ranker is shown your recent ratings. The model scores papers after the LLM has
+ranked them, when those signals exist.
+
+Cross-validated ROC-AUC on 161 ratings, identical folds (0.5 is chance):
+
+| Features | ROC-AUC |
+|---|---|
+| embeddings only | 0.62 ± 0.09 |
+| signals only (7 numbers) | **0.71 ± 0.09** |
+| embeddings + signals | 0.63 ± 0.08 |
+| signals + embeddings compressed by PCA (4-16 components) | 0.67-0.70 |
+
+Your preferences run through the explicit signals more than the text: seven numbers beat a
+384-dimensional embedding. Concatenating the two barely helps, because 384 embedding columns
+under one regularization strength drown seven signal columns, and compressing the embedding
+recovers most, but not all, of the gap. Within a search none of this beats ranking by LLM
+relevance alone, which already carries the most useful signal. So the model stays a minor term
+in the blend. Fine-tuning the 33M-parameter embedding model on this many labels would most
+likely overfit, but that hasn't been measured here.
 
 ## Engineering
 
