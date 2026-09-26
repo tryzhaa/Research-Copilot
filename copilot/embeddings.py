@@ -6,6 +6,7 @@ download instead of ~2 GB of dependencies, and it embeds ~60 abstracts in well u
 second on a laptop. The tradeoff is no training API — see scripts/ for what that rules out.
 """
 import math
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,11 +25,18 @@ BATCH_SIZE = 8
 MODEL_DIR = Path(__file__).resolve().parent.parent / "data" / "models"
 
 _model: "TextEmbedding | None" = None
+_model_lock = threading.Lock()
 
 
 def get_model() -> "TextEmbedding":
+    """The model, loaded once. The lock matters at a cold start, when several first requests
+    arrive together: without it each would load its own copy (+150 MB apiece)."""
     global _model
-    if _model is None:
+    if _model is not None:
+        return _model
+    with _model_lock:
+        if _model is not None:
+            return _model
         try:
             from fastembed import TextEmbedding
             _model = TextEmbedding(MODEL_NAME, cache_dir=str(MODEL_DIR), threads=cpu_limit())

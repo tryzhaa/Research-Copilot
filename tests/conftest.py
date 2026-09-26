@@ -23,3 +23,10 @@ def no_arxiv_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
     """Real arXiv requests are spaced 3 s apart; mocked ones needn't be."""
     from copilot import sources
     monkeypatch.setattr(sources, "ARXIV_GAP", 0.0)
+
+
+@pytest.fixture(autouse=True)
+def empty_source_cache() -> None:
+    """Sources cache responses for 10 minutes; each test starts without another test's."""
+    from copilot import sources
+    sources.clear_cache()

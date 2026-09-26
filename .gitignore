@@ -8,3 +8,4 @@ data/
 eval/latest_results.*
 .coverage
 pytest-report.xml
+library.lock

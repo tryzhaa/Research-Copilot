@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from .errors import CopilotError, RankingError, RankingTimeoutError, RewriteError
 from .models import Paper
+from .ratelimit import BudgetTimeout, budget_for
 from .sources import arxiv_wait, tls_for
 
 if TYPE_CHECKING:
@@ -193,7 +194,15 @@ def rank(papers: list[Paper], query: str, prefs: dict, liked: list[str], dislike
     return sorted(papers, key=lambda p: p.score if p.score is not None else -1, reverse=True)
 
 
-_rank_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="rank")
+# Separate pools so a queue of slow rankings (20-40 s each) can't starve the quick rewrites.
+# Hosted providers' token budgets (see _openai_chat), not these sizes, set how many run at once.
+_rank_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="rank")
+_rewrite_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="rewrite")
+
+
+def _with_deadline(prefs: dict, timeout: float) -> dict:
+    """prefs plus when the caller stops waiting, so a queued LLM call can give up in time."""
+    return prefs | {"llm_deadline": time.monotonic() + timeout}
 
 
 def rank_with_timeout(papers: list[Paper], query: str, prefs: dict, liked: list[str], disliked: list[str],
@@ -203,7 +212,7 @@ def rank_with_timeout(papers: list[Paper], query: str, prefs: dict, liked: list[
     The model works on copies: if it times out and finishes later, it can't change papers
     the caller has already moved on with (and ranked by similarity instead).
     """
-    fut = _rank_pool.submit(rank, copy.deepcopy(papers), query, prefs, liked, disliked)
+    fut = _rank_pool.submit(rank, copy.deepcopy(papers), query, _with_deadline(prefs, timeout), liked, disliked)
     try:
         return fut.result(timeout=timeout)
     except FuturesTimeout:
@@ -226,7 +235,7 @@ def rewrite_query(query: str, prefs: dict, field_labels: list[str], timeout: flo
     # No interests here on purpose: they pulled extra topics into the keywords, and similarity
     # already blends them in separately (retrieval.query_vector).
     prompt = f"Search: {query}\nFields searched: {', '.join(field_labels)}"
-    fut = _rank_pool.submit(_structured, prefs, REWRITE_SYSTEM, prompt, QueryRewrite, 700)
+    fut = _rewrite_pool.submit(_structured, _with_deadline(prefs, timeout), REWRITE_SYSTEM, prompt, QueryRewrite, 700)
     try:
         out = fut.result(timeout=timeout)
     except FuturesTimeout:
@@ -236,6 +245,8 @@ def rewrite_query(query: str, prefs: dict, field_labels: list[str], timeout: flo
     words = out.keywords.split()
     if not 1 <= len(words) <= 8:
         raise RewriteError(f"rewrite gave unusable keywords {out.keywords!r}, so this searched for your words as typed")
+    if len(_rewrites) > 2000:  # a public demo sees endless distinct queries
+        _rewrites.clear()
     _rewrites[cache_key] = out
     return out
 
@@ -387,6 +398,17 @@ def _openai_chat(prefs: dict, system: str, user: str, max_tokens: int, json_mode
         body["response_format"] = {"type": "json_object"}
     if effort := prefs.get("reasoning_effort"):
         body["reasoning_effort"] = effort  # reasoning models (gpt-oss, qwen3): how much to think first
+    if per_minute := prefs.get("tokens_per_minute"):
+        # Several searches at once share one key's per-minute budget: queue for it rather than
+        # all firing and getting 429s. Wait only while the caller still would (llm_deadline).
+        deadline = prefs.get("llm_deadline")
+        max_wait = max(0.0, deadline - time.monotonic()) if deadline else 60.0
+        try:
+            waited = budget_for(provider, int(per_minute)).acquire(_approx_tokens(system + user) + max_tokens, max_wait)
+        except BudgetTimeout as e:
+            raise RuntimeError(f"{provider} is busy with other searches right now ({e})") from None
+        if waited >= 1:
+            log.info("waited %.0fs for %s's per-minute token budget", waited, provider)
     for attempt in range(2):
         try:
             r = httpx.post(f"{base_url.rstrip('/')}/chat/completions", json=body,

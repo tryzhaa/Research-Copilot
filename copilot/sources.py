@@ -4,6 +4,7 @@ import re
 import ssl
 import threading
 import time
+from collections import OrderedDict
 
 import certifi
 import feedparser
@@ -52,7 +53,75 @@ def tls_for(url: str) -> ssl.SSLContext | bool:
     return ARXIV_TLS if "arxiv.org" in url else True
 
 
+# Shared by every search in the process: successful responses are kept for CACHE_TTL, and
+# simultaneous identical requests wait for the first one instead of each hitting the source.
+# Several visitors trying the same query cost one request per source, which matters most for
+# arXiv, where every request in the process shares one 3-second slot (arxiv_wait).
+CACHE_TTL = 600.0
+CACHE_BYTES = 16 * 1024 * 1024
+_cache: "OrderedDict[tuple, tuple[float, httpx.Response]]" = OrderedDict()
+_cache_size = 0
+_cache_lock = threading.Lock()
+_inflight: dict[tuple, threading.Lock] = {}
+
+
+def clear_cache() -> None:
+    global _cache_size
+    with _cache_lock:
+        _cache.clear()
+        _cache_size = 0
+
+
+def _cached(key: tuple) -> httpx.Response | None:
+    """Call with _cache_lock held."""
+    hit = _cache.get(key)
+    if hit is None:
+        return None
+    if time.monotonic() - hit[0] > CACHE_TTL:
+        _evict(key)
+        return None
+    _cache.move_to_end(key)
+    return hit[1]
+
+
+def _evict(key: tuple) -> None:
+    global _cache_size
+    _, r = _cache.pop(key)
+    _cache_size -= len(r.content)
+
+
+def _store(key: tuple, r: httpx.Response) -> None:
+    global _cache_size
+    if key in _cache:
+        _evict(key)
+    _cache[key] = (time.monotonic(), r)
+    _cache_size += len(r.content)
+    while _cache_size > CACHE_BYTES and len(_cache) > 1:
+        _evict(next(iter(_cache)))  # least recently used first
+
+
 def _get(url: str, params: dict, headers: dict = HEADERS, tries: int = 4) -> httpx.Response:
+    """GET through the shared cache; concurrent identical requests share one fetch."""
+    key = (url, tuple(sorted((k, str(v)) for k, v in params.items())))
+    with _cache_lock:
+        if (hit := _cached(key)) is not None:
+            return hit
+        flight = _inflight.setdefault(key, threading.Lock())
+    with flight:
+        with _cache_lock:  # the request we waited on may have filled it
+            if (hit := _cached(key)) is not None:
+                return hit
+        try:
+            r = _fetch(url, params, headers, tries)
+            with _cache_lock:
+                _store(key, r)
+            return r
+        finally:
+            with _cache_lock:
+                _inflight.pop(key, None)
+
+
+def _fetch(url: str, params: dict, headers: dict, tries: int) -> httpx.Response:
     """GET with backoff on rate limits and server hiccups — parallel field searches trip them easily."""
     for attempt in range(tries):
         if "arxiv.org" in url:
@@ -127,7 +196,8 @@ def search_hf_papers(query: str, limit: int, field: str) -> list[Paper]:
 
 def hf_trending(limit: int) -> list[Paper]:
     """Hugging Face's trending papers, the list on huggingface.co/papers/trending."""
-    r = _get("https://huggingface.co/api/daily_papers", {"sort": "trending", "limit": limit})
+    # Straight to the source: trending.py keeps its own hour-long cache of this list.
+    r = _fetch("https://huggingface.co/api/daily_papers", {"sort": "trending", "limit": limit}, HEADERS, 4)
     return [p for hit in r.json() if (p := _hf_paper(hit.get("paper") or {}, "ml"))]
 
 

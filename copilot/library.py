@@ -2,12 +2,37 @@
 import json
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from .models import Paper
 
+try:
+    import fcntl
+except ImportError:  # Windows: the thread lock alone, so one server process at a time there
+    fcntl = None  # type: ignore[assignment]
+
 PATH = Path(__file__).resolve().parent.parent / "library.json"
 _lock = threading.Lock()
+
+
+@contextmanager
+def _locked() -> Iterator[None]:
+    """Every read-modify-write of library.json holds this: the thread lock for concurrent requests,
+    plus an OS file lock so a second server process (uvicorn --workers, a script) can't interleave
+    and overwrite another's save."""
+    with _lock:
+        lock_file = PATH.with_suffix(".lock")
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_file, "a") as fh:
+            if fcntl:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if fcntl:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
 
 
 def _load() -> dict:
@@ -22,12 +47,12 @@ def _save(data: dict) -> None:
 
 
 def entries() -> list[dict]:
-    with _lock:
+    with _locked():
         return sorted(_load().values(), key=lambda e: e["updated"], reverse=True)
 
 
 def get(key: str) -> dict | None:
-    with _lock:
+    with _locked():
         return _load().get(key)
 
 
@@ -41,7 +66,7 @@ def _entry(data: dict, paper: Paper, now: float) -> dict:
 
 
 def upsert(paper: Paper, **changes: object) -> dict:
-    with _lock:
+    with _locked():
         data = _load()
         now = time.time()
         entry = _entry(data, paper, now)
@@ -57,7 +82,7 @@ def set_folder(paper: Paper, folder: str, add: bool) -> dict:
     folder = " ".join(folder.split())[:60]
     if not folder:
         raise ValueError("folder name is empty")
-    with _lock:
+    with _locked():
         data = _load()
         now = time.time()
         entry = _entry(data, paper, now)
@@ -81,7 +106,7 @@ def folders() -> list[dict]:
 
 
 def remove(key: str) -> None:
-    with _lock:
+    with _locked():
         data = _load()
         if data.pop(key, None) is not None:
             _save(data)

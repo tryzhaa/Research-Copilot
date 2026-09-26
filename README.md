@@ -150,6 +150,11 @@ likely overfit, but that hasn't been measured here.
 - Typed errors (`SourceFetchError`, `RankingTimeoutError`, ...) reach the UI per source:
   which source failed and why (timeout, rate limit, network).
 - Sources retry 429/5xx with backoff; hosted LLMs wait out one short rate limit.
+- Concurrent users: sources share a 10-minute response cache, and identical simultaneous requests
+  make one fetch; embedding runs one computation at a time while cached lookups don't wait;
+  LLM calls book slots in a shared tokens-per-minute budget (`tokens_per_minute`), so on a free
+  tier a search that can't be ranked in time falls back to similarity at once instead of after
+  its timeout; `library.json` writes hold a file lock, safe across server processes.
 - CI: type check → tests with coverage → evaluation report as a run summary and artifact.
 - Local ranking went from 14.5 to 6 minutes per search by batching; hosted models bring it to
   seconds.

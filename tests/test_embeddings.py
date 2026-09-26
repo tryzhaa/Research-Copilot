@@ -43,7 +43,7 @@ def test_all_cached_embeds_nothing(tmp_path: Path, fake_embed: list[list[str]]) 
     db = tmp_path / "e.sqlite"
     embed_cache.get_embeddings(["k1"], ["aa"], db)
     embed_cache.get_embeddings(["k1"], ["aa"], db)
-    assert fake_embed[1] == []
+    assert fake_embed == [["aa"]]  # the second call never reached the model
 
 
 def test_cpu_limit_reads_the_cgroup_quota(tmp_path: Path) -> None:
