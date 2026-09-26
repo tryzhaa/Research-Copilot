@@ -122,7 +122,7 @@ def _rank_prompt(papers: list[Paper], query: str, prefs: dict, liked: list[str],
 
     listing = "\n\n".join(
         f"[{i}] {p.title} ({p.year}, {p.venue or p.source}, {p.citations} citations, {code(p)})\n"
-        f"{p.abstract[:abstract_chars]}"
+        f"{excerpt(p.abstract, abstract_chars)}"
         for i, p in enumerate(papers)
     )
     feedback = ""
@@ -132,6 +132,60 @@ def _rank_prompt(papers: list[Paper], query: str, prefs: dict, liked: list[str],
         feedback += "\nPapers I rated poorly before:\n" + "\n".join(f"- {t}" for t in disliked[-15:])
     return (f"My standing interests:\n{prefs['interests']}{feedback}\n\n"
             f"Current query: {query}\n\nCandidates:\n{listing}\n\nAssess every candidate.")
+
+
+NAMES = re.compile(r"\b(?=[\w-]*[A-Z])(?=[\w-]*\d)[\w-]{3,}\b|\b[A-Z][a-z]*[A-Z][\w-]*\b|\b[A-Z]{3,}\b")
+EVIDENCE = re.compile(r"\b(data ?sets?|databases?|benchmarks?|corpus|corpora|evaluat\w*|experiments?|outperform\w*|"
+                      r"state[- ]of[- ]the[- ]art|test(s|ed|ing)?|train(s|ed|ing)?|accuracy|performance|results?)\b", re.I)
+
+
+def _evidence(sentence: str) -> int:
+    """How likely a sentence names what the paper was evaluated on: dataset-like words, weighted
+    up when it also has names (QM9, CIFAR-10, MusicCaps, GLUE)."""
+    words = len(EVIDENCE.findall(sentence))
+    return 3 * words * (1 + min(2, len(NAMES.findall(sentence)))) if words else 0
+
+
+def _window(sentence: str, chars: int) -> str:
+    """`chars` of a long sentence, centred on the first name after its evidence (the dataset)."""
+    m = EVIDENCE.search(sentence)
+    named = [n for n in NAMES.finditer(sentence) if not m or n.start() > m.start()]
+    m = named[0] if named else m
+    start = max(0, min((m.start() if m else 0) - chars // 2, len(sentence) - chars))
+    return ("…" if start else "") + sentence[start:start + chars].strip() + ("…" if start + chars < len(sentence) else "")
+
+
+def excerpt(abstract: str, chars: int) -> str:
+    """At most `chars` of the abstract for the ranker. Abstracts name their benchmarks near the
+    end, so a plain prefix, cut to fit a free tier's request cap, drops exactly the datasets. This
+    keeps the sentences that name datasets and results first, then the opening (what the paper
+    does), then whatever else fits, all in their original order."""
+    if len(abstract) <= chars:
+        return abstract
+    sentences = re.split(r"(?<=[.!?])\s+", abstract.strip())
+    parts: dict[int, str] = {}
+    room = chars
+
+    def take(i: int, most: int) -> None:
+        nonlocal room
+        text = sentences[i] if len(sentences[i]) <= most else _window(sentences[i], most)
+        if text and len(text) + 2 <= room:
+            parts[i] = text
+            room -= len(text) + 2
+
+    ranked = sorted((i for i in range(len(sentences)) if _evidence(sentences[i])), key=lambda i: -_evidence(sentences[i]))
+    for i in ranked[:3]:
+        take(i, chars // 2)
+    if 0 not in parts:
+        take(0, room - 2)
+    for i in range(1, len(sentences)):
+        if i not in parts and len(sentences[i]) + 2 <= room:
+            take(i, room)
+    out, prev = "", -1
+    for i in sorted(parts):
+        out += ("" if prev < 0 else " " if i == prev + 1 else " … ") + parts[i]
+        prev = i
+    return out[:chars] or abstract[:chars]
 
 
 def _apply_scores(papers: list[Paper], ranking: Ranking) -> None:

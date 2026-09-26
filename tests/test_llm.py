@@ -144,3 +144,24 @@ def test_bolded_headings_are_unwrapped(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(url=GROQ, json=_reply("**## TL;DR**  \nIt uses **bold** words.\n** ## Build it **"))
     text, _ = llm.summarize(paper("t", abstract="a"), PREFS, "## TL;DR")
     assert text.splitlines() == ["## TL;DR", "It uses **bold** words.", "## Build it"]
+
+
+GNN_ABSTRACT = (
+    "Graph neural networks predict molecular properties from structure. Most models ignore long-range "
+    "interactions between atoms, which limits their accuracy on larger molecules. We propose a multiplex "
+    "message passing scheme that separates local and global interactions and keeps the cost linear in the "
+    "number of atoms. The scheme is simple to add to existing architectures. Our model achieves "
+    "state-of-the-art performance in 9 out of 12 targets on the QM9 dataset and improves on MD17 forces."
+)
+
+
+def test_ranker_excerpt_keeps_the_datasets_a_prefix_cut_would_drop() -> None:
+    assert "QM9" not in GNN_ABSTRACT[:200]
+    out = llm.excerpt(GNN_ABSTRACT, 200)
+    assert "QM9" in out and len(out) <= 200
+
+
+def test_ranker_excerpt_leaves_short_abstracts_alone_and_never_comes_back_empty() -> None:
+    assert llm.excerpt("Short.", 200) == "Short."
+    assert llm.excerpt("We propose X. It is fast. " * 20, 100)
+    assert llm.excerpt("A" * 500, 50) == "A" * 50
