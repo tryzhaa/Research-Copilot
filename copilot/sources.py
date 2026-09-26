@@ -96,30 +96,39 @@ def search_arxiv(query: str, categories: list[str], limit: int, field: str) -> l
     return papers
 
 
+def _hf_paper(p: dict, field: str) -> Paper | None:
+    """A Hugging Face Papers record (search hit or daily/trending entry) as a Paper."""
+    arxiv_id = p.get("id", "")
+    if not arxiv_id:
+        return None
+    return Paper(
+        title=" ".join((p.get("title") or "").split()),
+        abstract=" ".join((p.get("summary") or "").split()),
+        authors=[a["name"] for a in (p.get("authors") or [])[:12] if a.get("name")],
+        year=int(p["publishedAt"][:4]) if p.get("publishedAt") else None,
+        venue="arXiv",
+        arxiv_id=arxiv_id,
+        url=f"https://huggingface.co/papers/{arxiv_id}",
+        pdf_url=f"https://arxiv.org/pdf/{arxiv_id}",
+        code_url=p.get("githubRepo") or "",
+        stars=p.get("githubStars") or 0,
+        upvotes=p.get("upvotes") or 0,
+        tldr=" ".join((p.get("ai_summary") or "").split()),
+        source="Hugging Face",
+        field=field,
+    )
+
+
 def search_hf_papers(query: str, limit: int, field: str) -> list[Paper]:
     """Hugging Face Papers — where paperswithcode.com now redirects. Live, with GitHub repos and stars."""
     r = _get("https://huggingface.co/api/papers/search", {"q": query, "limit": limit})
-    papers = []
-    for hit in r.json():
-        p = hit.get("paper") or {}
-        arxiv_id = p.get("id", "")
-        if not arxiv_id:
-            continue
-        papers.append(Paper(
-            title=" ".join((p.get("title") or "").split()),
-            abstract=" ".join((p.get("summary") or "").split()),
-            authors=[a["name"] for a in (p.get("authors") or [])[:12] if a.get("name")],
-            year=int(p["publishedAt"][:4]) if p.get("publishedAt") else None,
-            venue="arXiv",
-            arxiv_id=arxiv_id,
-            url=f"https://huggingface.co/papers/{arxiv_id}",
-            pdf_url=f"https://arxiv.org/pdf/{arxiv_id}",
-            code_url=p.get("githubRepo") or "",
-            stars=p.get("githubStars") or 0,
-            source="Hugging Face",
-            field=field,
-        ))
-    return papers
+    return [p for hit in r.json() if (p := _hf_paper(hit.get("paper") or {}, field))]
+
+
+def hf_trending(limit: int) -> list[Paper]:
+    """Hugging Face's trending papers, the list on huggingface.co/papers/trending."""
+    r = _get("https://huggingface.co/api/daily_papers", {"sort": "trending", "limit": limit})
+    return [p for hit in r.json() if (p := _hf_paper(hit.get("paper") or {}, "ml"))]
 
 
 def _openalex_abstract(inv: dict | None) -> str:

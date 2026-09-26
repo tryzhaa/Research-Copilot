@@ -30,6 +30,9 @@ class Paper(BaseModel):
     code_official: bool = False
     code_framework: str = ""
     stars: int = 0
+    # From Hugging Face Papers: community upvotes and its one-line AI summary
+    upvotes: int = 0
+    tldr: str = ""
     # Filled in by retrieval (cosine similarity to query + interests, -1..1) and the preference model (P(like), 0..1)
     similarity: float | None = None
     preference: float | None = None

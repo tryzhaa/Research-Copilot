@@ -10,8 +10,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from copilot import demo, graph, library, pwc, retrieval, snapshots
-from copilot.errors import EmbeddingError, RankingError, RewriteError
+from copilot import demo, graph, library, pwc, retrieval, snapshots, trending
+from copilot.errors import EmbeddingError, RankingError, RewriteError, SourceFetchError
 from copilot.llm import QueryRewrite, rank_with_timeout, rewrite_query, summarize
 from copilot.models import InvalidPaper, Paper
 from copilot.prefs import load_prefs
@@ -128,6 +128,16 @@ def get_prefs() -> dict:
         "effort": prefs.get("effort", "medium"),
         "demo": demo.limits() if demo.enabled() else None,
     }
+
+
+@app.get("/api/trending")
+def get_trending() -> dict:
+    """The home screen's list before any search. No LLM, so no demo quota."""
+    try:
+        papers, fetched_at, note = trending.trending()
+    except SourceFetchError as e:
+        raise HTTPException(502, str(e))
+    return {"papers": [serialize(p) for p in papers], "fetched_at": fetched_at, "note": note}
 
 
 @app.post("/api/search")

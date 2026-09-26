@@ -212,3 +212,10 @@ footer { padding-bottom: 32px; font: 12px var(--mono); color: var(--faint); }
 .demo .actions .rate, .demo nav [data-view="library"], .demo #sample { display: none !important; }
 #foot a { color: var(--muted); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 #foot a:hover { color: var(--fg); }
+
+/* ---------- trending (home screen, before a search) ---------- */
+.trending { margin-top: 40px; }
+.trending-head { margin: 0; font: 12.5px var(--mono); color: var(--muted); }
+.trending-head span { color: var(--faint); }
+.trending .papers { margin-top: 12px; }
+.score.votes { font-size: 15px; color: var(--muted); padding-top: 4px; }

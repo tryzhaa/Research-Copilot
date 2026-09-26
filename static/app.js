@@ -64,7 +64,9 @@ function authorLine(authors = []) {
 
 function row(p, entry = null) {
   papers.set(p.key, p);
-  const score = p.score == null ? "–" : (+p.score).toFixed(1).replace(/\.0$/, "");
+  // Ranked papers show their relevance score; trending ones (never ranked) their upvotes.
+  const score = p.score != null ? (+p.score).toFixed(1).replace(/\.0$/, "")
+    : p.upvotes ? `▲${p.upvotes}` : "–";
   const meta = [
     authorLine(p.authors), p.year,
     p.venue && p.venue !== p.source ? p.venue : "",
@@ -91,12 +93,13 @@ function row(p, entry = null) {
 
   return `
   <li class="paper" data-key="${esc(p.key)}">
-    <div class="score ${p.score != null && p.score < 5 ? "low" : ""}">${score}</div>
+    <div class="score ${p.score != null && p.score < 5 ? "low" : ""} ${p.score == null && p.upvotes ? "votes" : ""}"
+         ${p.score == null && p.upvotes ? `title="${p.upvotes} upvotes on Hugging Face"` : ""}>${score}</div>
     <div>
       <h2><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></h2>
       <p class="meta">${meta}</p>
       ${signals ? `<p class="signals">${signals}</p>` : ""}
-      ${p.reason ? `<p class="reason">${esc(p.reason)}</p>` : ""}
+      ${p.reason ? `<p class="reason">${esc(p.reason)}</p>` : p.tldr ? `<p class="reason">${esc(p.tldr)}</p>` : ""}
       ${p.recruiter_reason ? `<p class="reason recruiter"><span>recruiter</span> ${esc(p.recruiter_reason)}</p>` : ""}
       ${p.abstract ? `<details class="abstract"><summary>abstract</summary><p>${esc(p.abstract)}</p></details>` : ""}
       <div class="actions">
@@ -459,6 +462,7 @@ $("#search-form").addEventListener("submit", async e => {
   if (!fields.length) return setStatus("pick at least one field");
 
   searching = true;
+  $("#trending").hidden = true;
   $("#results").innerHTML = "";
   $("#errors").innerHTML = "";
   $("#sample").hidden = true;
@@ -579,7 +583,21 @@ $$("nav button").forEach(b => b.addEventListener("click", () => showView(b.datas
       $("#foot").textContent = `${prefs.model} via ${prefs.provider} · ${prefs.effort} effort · settings live in preferences.yaml`;
     }
     refreshLibCount();
+    loadTrending();
   } catch (err) {
     setStatus(`can't reach the server: ${err.message}`);
   }
 })();
+
+// Before the first search, the home screen shows what's trending (cached server-side, no LLM).
+async function loadTrending() {
+  try {
+    const { papers, note } = await api("/api/trending");
+    if (!papers.length || $("#results").children.length) return;  // a search already started
+    $("#trending-list").innerHTML = papers.map(p => row(p)).join("");
+    $("#trending-note").textContent = note ? `· ${note}` : "";
+    $("#trending").hidden = searching;
+  } catch {
+    // Optional: the search box works without it.
+  }
+}
