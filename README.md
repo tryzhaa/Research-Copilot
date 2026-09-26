@@ -170,6 +170,8 @@ take 10-50 s per query), and most of the rest is embedding ~100 candidates on on
 
 ### Google Cloud Run
 
+Step-by-step guide, including why the setup looks the way it does: [docs/DEPLOY.md](docs/DEPLOY.md).
+
 Scales to zero, so an idle demo costs nothing; the first visit after a quiet spell waits for a
 cold start. Needs the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and a project with billing
 enabled (set a budget alert under Billing → Budgets).
