@@ -169,3 +169,26 @@ def test_406_is_not_retried(httpx_mock: HTTPXMock) -> None:
     with pytest.raises(httpx.HTTPStatusError):
         sources.search_arxiv("q", ["cs.LG"], 5, "ml")
     assert len(httpx_mock.get_requests()) == 1
+
+
+def test_slow_source_is_skipped_at_the_deadline(prefs: dict, monkeypatch: object) -> None:
+    import threading
+    import time
+
+    from copilot import search
+    release = threading.Event()
+
+    def slow_openalex(*a: object) -> list:
+        release.wait(5)  # stands in for a 50 s OpenAlex query
+        return [paper("never shown")]
+    monkeypatch.setattr(search, "search_openalex", slow_openalex)  # type: ignore[attr-defined]
+    monkeypatch.setattr(search, "search_arxiv", lambda *a: [paper("from arxiv")])  # type: ignore[attr-defined]
+    monkeypatch.setattr(search, "search_hf_papers", lambda *a: [paper("from hf")])  # type: ignore[attr-defined]
+    t = time.monotonic()
+    papers, errors = search.search_all("q", prefs | {"source_timeout_seconds": 0.2}, ["ml"])
+    release.set()
+    assert time.monotonic() - t < 2  # didn't wait for the slow source
+    assert {p.title for p in papers} == {"from arxiv", "from hf"}
+    [err] = errors
+    assert err.to_dict()["source"] == "OpenAlex" and err.to_dict()["error_type"] == "timeout"
+    assert "took over 0.2 s, skipped" in str(err)

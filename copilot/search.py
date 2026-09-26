@@ -1,11 +1,11 @@
 """Fan out to every source for every selected field, then dedupe and hard-filter."""
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from functools import partial
 from itertools import zip_longest
 
 from . import pwc
-from .errors import SourceFetchError
+from .errors import SourceFetchError, SourceTimeout
 from .models import Paper
 from .sources import search_arxiv, search_hf_papers, search_openalex, search_semantic_scholar
 
@@ -27,15 +27,24 @@ def search_all(query: str, prefs: dict, field_keys: list[str], use_s2: bool = Fa
     hf_field = "ml" if "ml" in field_keys else field_keys[0]
     jobs.insert(0, ("Hugging Face", hf_field, partial(search_hf_papers, query, n, hf_field)))
 
+    # One deadline for the whole fan-out: OpenAlex alone can take 10-50 s per query on its side,
+    # and a search shouldn't wait on its slowest source. Stragglers are reported and skipped;
+    # their requests finish in the background and are ignored.
+    deadline = prefs.get("source_timeout_seconds", 25)
     results: list[list[Paper]] = []
     errors: list[SourceFetchError] = []
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = [(name, key, pool.submit(fn)) for name, key, fn in jobs]
-        for name, key, fut in futures:
-            try:
-                results.append(fut.result())
-            except Exception as e:
-                errors.append(SourceFetchError(name, key, e))
+    pool = ThreadPoolExecutor(max_workers=8)
+    futures = [(name, key, pool.submit(fn)) for name, key, fn in jobs]
+    wait([f for _, _, f in futures], timeout=deadline)
+    for name, key, fut in futures:
+        if not fut.done():
+            errors.append(SourceFetchError(name, key, SourceTimeout(deadline)))
+            continue
+        try:
+            results.append(fut.result())
+        except Exception as e:
+            errors.append(SourceFetchError(name, key, e))
+    pool.shutdown(wait=False, cancel_futures=True)
 
     # Round-robin across sources so list order roughly tracks each source's own relevance order.
     papers = [p for rank in zip_longest(*results) for p in rank if p is not None]

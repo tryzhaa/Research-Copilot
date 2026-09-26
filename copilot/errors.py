@@ -48,8 +48,16 @@ class EmbeddingError(CopilotError):
     error_type = "embedding_failed"
 
 
+class SourceTimeout(Exception):
+    """A source hadn't answered by the search's deadline, so the search went on without it."""
+
+    def __init__(self, seconds: float):
+        self.seconds = seconds
+        super().__init__(f"took over {seconds:g} s")
+
+
 def classify(e: Exception) -> str:
-    if isinstance(e, httpx.TimeoutException):
+    if isinstance(e, (httpx.TimeoutException, SourceTimeout)):
         return "timeout"
     if isinstance(e, httpx.HTTPStatusError):
         return "rate_limit" if e.response.status_code == 429 else "http_error"
@@ -66,6 +74,8 @@ def _describe(e: Exception) -> str:
         if code in (401, 403):
             return "rejected the API key, check it in .env"
         return f"HTTP {code}"
+    if isinstance(e, SourceTimeout):
+        return f"took over {e.seconds:g} s, skipped (source_timeout_seconds in preferences.yaml)"
     if isinstance(e, httpx.TimeoutException):
         return "timed out"
     if isinstance(e, httpx.TransportError):
