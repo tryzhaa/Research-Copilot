@@ -160,9 +160,9 @@ are baked in, and it runs with `DEMO_MODE=1`:
   when the instance restarts.
 
 Locally: `docker build -t research-copilot . && docker run -p 7860:7860 --env-file .env research-copilot`.
-Measured in a container limited to 1 GB and 1 CPU: ~650 MB at peak, a 5 s start, and 20-65 s
-per three-field search, most of it OpenAlex (10-50 s per query on its side) and embedding ~80
-candidates on one CPU (~25 s).
+Measured in a container limited to 1 GB and 1 CPU: 650-780 MB at peak, a 5 s start, and ~40 s
+per three-field search. Fetching is capped by `source_timeout_seconds` (25 s; OpenAlex alone can
+take 10-50 s per query), and most of the rest is embedding ~100 candidates on one CPU.
 
 ### Google Cloud Run
 
