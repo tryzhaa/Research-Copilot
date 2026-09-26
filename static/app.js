@@ -62,11 +62,12 @@ function authorLine(authors = []) {
   return authors.length > 3 ? `${authors.slice(0, 3).join(", ")} et al.` : authors.join(", ");
 }
 
-function row(p, entry = null) {
+function row(p, entry = null, { trending = false } = {}) {
   papers.set(p.key, p);
-  // Ranked papers show their relevance score; trending ones (never ranked) their upvotes.
-  const score = p.score != null ? (+p.score).toFixed(1).replace(/\.0$/, "")
-    : p.upvotes ? `▲${p.upvotes}` : "–";
+  // Ranked papers show their relevance score. Only the trending list shows upvotes there: search
+  // results from Hugging Face carry upvotes too, and ▲ in a search or the library reads as "trending".
+  const votes = trending && p.score == null && p.upvotes;
+  const score = p.score != null ? (+p.score).toFixed(1).replace(/\.0$/, "") : votes ? `▲${p.upvotes}` : "–";
   const meta = [
     authorLine(p.authors), p.year,
     p.venue && p.venue !== p.source ? p.venue : "",
@@ -93,8 +94,8 @@ function row(p, entry = null) {
 
   return `
   <li class="paper" data-key="${esc(p.key)}">
-    <div class="score ${p.score != null && p.score < 5 ? "low" : ""} ${p.score == null && p.upvotes ? "votes" : ""}"
-         ${p.score == null && p.upvotes ? `title="${p.upvotes} upvotes on Hugging Face"` : ""}>${score}</div>
+    <div class="score ${p.score != null && p.score < 5 ? "low" : ""} ${votes ? "votes" : ""}"
+         ${votes ? `title="${p.upvotes} upvotes on Hugging Face"` : ""}>${score}</div>
     <div>
       <h2><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></h2>
       <p class="meta">${meta}</p>
@@ -612,7 +613,7 @@ async function loadTrending() {
   try {
     const { papers, note } = await api("/api/trending");
     if (!papers.length || $("#results").children.length) return;  // a search already started
-    $("#trending-list").innerHTML = papers.map(p => row(p)).join("");
+    $("#trending-list").innerHTML = papers.map(p => row(p, null, { trending: true })).join("");
     $("#trending-note").textContent = note ? `· ${note}` : "";
     $("#trending").hidden = searching;
   } catch {
