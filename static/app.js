@@ -383,7 +383,10 @@ async function drawLibraryGraph(list) {
   const wrap = $("#lib-graph"), run = ++libGraphRun;
   libGraph = null;
   $("#lg-card").hidden = true;
-  if (!window.d3 || !["saved", "liked"].includes(libFilter) || !list.length) return (wrap.hidden = true);
+  if (!window.d3 || !["saved", "liked"].includes(libFilter) || !list.length) {
+    $("#lg-related-box").hidden = true;
+    return (wrap.hidden = true);
+  }
   $("#lg-note").textContent = "mapping your papers…";
   wrap.hidden = false;
   let data;
@@ -397,9 +400,11 @@ async function drawLibraryGraph(list) {
   const related = data.related || [];
   $("#lg-note").textContent = `your ${libFilter} papers (bright) and the papers around them · `
     + `lines join similar papers · hover a paper to find it · click a dot`;
+  // 960 px and up: a column beside the list that stays in view (see #view-library in the CSS).
+  const beside = matchMedia("(min-width: 960px)").matches;
   if (data.nodes.length >= 2) {
     libGraph = drawGraph($("#lg"), data, {
-      height: Math.max(320, Math.min(460, innerHeight - 300)),
+      height: beside ? Math.max(300, Math.min(innerHeight - 200, 520)) : 320,
       big: d => d.on_screen,
       fill: (d, col) => d.on_screen ? col("--fg") : d.rating < 0 ? "none" : col("--faint"),
       onSelect: d => {

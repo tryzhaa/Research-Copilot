@@ -167,9 +167,13 @@ footer { padding-bottom: 32px; font: 12px var(--mono); color: var(--faint); }
    them. Below 960 px there's no room, so the graph stacks above the results. */
 #view-library { max-width: calc(var(--width) - 48px); }
 @media (min-width: 960px) {
-  #view-search { display: grid; grid-template-columns: minmax(0, calc(var(--width) - 48px)) minmax(260px, 1fr); column-gap: 56px; }
-  #view-search > * { grid-column: 1; }
+  #view-search, #view-library { display: grid; grid-template-columns: minmax(0, calc(var(--width) - 48px)) minmax(260px, 1fr); column-gap: 56px; }
+  /* The library's rows: tabs, folders, similar papers, then your papers. Only the last row grows,
+     so the screen-tall map column never opens gaps between them when the list is short. */
+  #view-library { max-width: none; grid-template-rows: auto auto auto 1fr; }
+  #view-search > *, #view-library > * { grid-column: 1; }
   #view-search > .results-graph { grid-column: 2; grid-row: 1 / span 6; }
+  #view-library > .lib-graph { grid-column: 2; grid-row: 1 / span 4; }
   /* A screen-tall sticky column. Equal rows above and below keep the graph itself at mid-screen
      as you scroll; the note sits in the top row and a clicked paper's card in the bottom one. */
   .rg-sticky {
@@ -226,5 +230,4 @@ footer { padding-bottom: 32px; font: 12px var(--mono); color: var(--faint); }
 .score.votes { font-size: 15px; color: var(--muted); padding-top: 4px; }
 
 /* ---------- library map: saved / liked papers and similar ones to rate ---------- */
-.lib-graph .map-note { margin-top: 18px; }
-.lib-graph .sample { margin: 18px 0 30px; }
+.lib-related { margin: 8px 0 24px; }
