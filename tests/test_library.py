@@ -53,3 +53,18 @@ def test_folders_hold_papers_and_saving_to_one_saves_the_paper() -> None:
 def test_folder_name_must_not_be_blank() -> None:
     with pytest.raises(ValueError):
         library.set_folder(paper("A"), "   ", add=True)
+
+
+def test_save_endpoint_saves_and_unsaving_empties_folders(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The page has one save button: it saves, the picker files, "unsave" undoes both.
+    from fastapi.testclient import TestClient
+
+    from app import app
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    client = TestClient(app)
+    p = {"title": "Deep Sets", "doi": "10.1/a"}
+    assert client.post("/api/save", json={"paper": p, "saved": True}).json() == {"saved": True, "folders": [], "all": []}
+    client.post("/api/folder", json={"paper": p, "folder": "art", "add": True})
+    body = client.post("/api/save", json={"paper": p, "saved": False}).json()
+    assert body == {"saved": False, "folders": [], "all": []}  # out of "art", which is now empty and gone
+    assert library.get("doi:10.1/a")["folders"] == []

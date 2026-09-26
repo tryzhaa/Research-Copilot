@@ -252,8 +252,10 @@ def rate(body: RateIn, _: None = Depends(owner_only)) -> dict:
 
 @app.post("/api/save")
 def save(body: SaveIn, _: None = Depends(owner_only)) -> dict:
-    library.upsert(to_paper(body.paper), saved=body.saved)
-    return {"ok": True}
+    # Folders are part of saving (filing a paper saves it), so unsaving takes it out of them too.
+    changes: dict = {"saved": True} if body.saved else {"saved": False, "folders": []}
+    entry = library.upsert(to_paper(body.paper), **changes)
+    return {"saved": entry["saved"], "folders": entry["folders"], "all": library.folders()}
 
 
 @app.post("/api/folder")

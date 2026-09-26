@@ -186,6 +186,8 @@ footer { padding-bottom: 32px; font: 12px var(--mono); color: var(--faint); }
 .folder-picker button.on { color: var(--fg); }
 .folder-picker button.on::before { content: "■ "; }
 .folder-picker button:hover { color: var(--fg); }
+.folder-picker .unsave { margin-left: auto; }
+.folder-picker .unsave::before, .folder-picker .unsave.on::before { content: none; }
 .new-folder { font: inherit; color: var(--fg); background: none; border: 0; border-bottom: 1px solid var(--rule); padding: 2px 0; width: 14ch; }
 .new-folder:focus { outline: none; border-bottom-color: var(--muted); }
 .lib-folders { margin: -2px 0 6px; }
@@ -208,7 +210,7 @@ footer { padding-bottom: 32px; font: 12px var(--mono); color: var(--faint); }
 }
 
 /* ---------- public demo: read-only ---------- */
-.demo [data-act="save"], .demo [data-act="folder"], .demo [data-act="remove"], .demo [data-act="regen"],
+.demo [data-act="save"], .demo [data-act="remove"], .demo [data-act="regen"],
 .demo .actions .rate, .demo nav [data-view="library"], .demo #sample { display: none !important; }
 #foot a { color: var(--muted); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 #foot a:hover { color: var(--fg); }

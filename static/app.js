@@ -107,8 +107,7 @@ function row(p, entry = null) {
         ${p.pdf_url ? `<a href="${esc(p.pdf_url)}" target="_blank" rel="noopener">pdf</a>` : ""}
         <button data-act="similar">similar</button>
         <button data-act="bib">bibtex</button>
-        <button data-act="save" class="${p.saved ? "on" : ""}">${p.saved ? "saved" : "save"}</button>
-        <button data-act="folder" class="${p.folders?.length ? "on" : ""}">${folderLabel(p)}</button>
+        <button data-act="save" class="${p.saved ? "on" : ""}" aria-expanded="false">${saveLabel(p)}</button>
         <span class="rate">
           <button data-act="up" class="${p.rating > 0 ? "on" : ""}" aria-label="More like this" title="More like this">+</button>
           <button data-act="down" class="${p.rating < 0 ? "on" : ""}" aria-label="Less like this" title="Less like this">−</button>
@@ -124,8 +123,36 @@ function row(p, entry = null) {
 
 // ---------- folders ----------
 
-const folderLabel = p => !p.folders?.length ? "folder"
-  : p.folders.length === 1 ? `in ${esc(p.folders[0])}` : `in ${p.folders.length} folders`;
+// One button for saving and filing: "save" saves and opens the folder picker; once saved it
+// toggles the picker, which also holds "unsave".
+const saveLabel = p => !p.saved ? "save"
+  : !p.folders?.length ? "saved"
+  : p.folders.length === 1 ? `saved · ${esc(p.folders[0])}` : `saved · ${p.folders.length} folders`;
+
+function showSaved(li, p) {
+  const btn = $('[data-act="save"]', li);
+  btn.innerHTML = saveLabel(p);
+  btn.classList.toggle("on", !!p.saved);
+}
+
+function togglePicker(li, p, open) {
+  const box = $(".folder-picker", li);
+  box.hidden = !open;
+  $('[data-act="save"]', li).setAttribute("aria-expanded", String(open));
+  if (open) {
+    renderPicker(li, p);
+    $(".new-folder", box).focus();
+  }
+}
+
+// Keep the library's copy of this paper in step without re-rendering it (that would close the picker).
+function syncLibrary(p, all) {
+  allFolders = all;
+  const en = libEntries.find(x => x.key === p.key);
+  if (en) Object.assign(en, { folders: p.folders, saved: p.saved });
+  else refreshLibCount();
+  if (!$("#view-library").hidden) renderFolderFilters();
+}
 
 function renderPicker(li, p) {
   const box = $(".folder-picker", li);
@@ -133,26 +160,17 @@ function renderPicker(li, p) {
   const names = [...new Set([...allFolders.map(f => f.name), ...mine])];
   box.innerHTML = `
     ${names.map(n => `<button data-act="folder-toggle" data-folder="${esc(n)}" class="${mine.has(n) ? "on" : ""}">${esc(n)}</button>`).join("")}
-    <input class="new-folder" placeholder="${names.length ? "new folder…" : "name a folder…"}" maxlength="60" aria-label="New folder name">`;
+    <input class="new-folder" placeholder="${names.length ? "new folder…" : "add to a folder…"}" maxlength="60" aria-label="New folder name">
+    <button data-act="unsave" class="unsave">unsave</button>`;
 }
 
 async function setFolder(li, p, folder, add) {
   const d = await api("/api/folder", { paper: p, folder, add });
   p.folders = d.folders;
   p.saved = d.saved;
-  allFolders = d.all;
-  const btn = $('[data-act="folder"]', li);
-  btn.innerHTML = folderLabel(p);
-  btn.classList.toggle("on", p.folders.length > 0);
-  const save = $('[data-act="save"]', li);
-  save.classList.toggle("on", p.saved);
-  save.textContent = p.saved ? "saved" : "save";
+  showSaved(li, p);
   renderPicker(li, p);
-  // Update the library in place: re-rendering it would close the picker mid-use.
-  const en = libEntries.find(x => x.key === p.key);
-  if (en) Object.assign(en, { folders: d.folders, saved: d.saved });
-  else refreshLibCount();
-  if (!$("#view-library").hidden) renderFolderFilters();
+  syncLibrary(p, d.all);
 }
 
 document.addEventListener("keydown", async e => {
@@ -401,15 +419,6 @@ document.addEventListener("click", async e => {
     switch (btn.dataset.act) {
       case "summarize": return summarizeRow(li, p);
       case "similar": return similarRow(li, p);
-      case "folder": {
-        const box = $(".folder-picker", li);
-        box.hidden = !box.hidden;
-        if (!box.hidden) {
-          renderPicker(li, p);
-          $(".new-folder", box).focus();
-        }
-        return;
-      }
       case "folder-toggle":
         return setFolder(li, p, btn.dataset.folder, !(p.folders || []).includes(btn.dataset.folder));
       case "regen": return summarizeRow(li, p, true);
@@ -418,12 +427,21 @@ document.addEventListener("click", async e => {
         btn.textContent = "copied";
         setTimeout(() => { btn.textContent = "bibtex"; }, 1400);
         return;
-      case "save":
-        p.saved = !p.saved;
-        await api("/api/save", { paper: p, saved: p.saved });
-        btn.classList.toggle("on", p.saved);
-        btn.textContent = p.saved ? "saved" : "save";
-        return refreshLibCount();
+      case "save": {
+        if (p.saved) return togglePicker(li, p, $(".folder-picker", li).hidden);
+        const d = await api("/api/save", { paper: p, saved: true });
+        Object.assign(p, { saved: d.saved, folders: d.folders });
+        showSaved(li, p);
+        syncLibrary(p, d.all);
+        return togglePicker(li, p, true);  // saved; now optionally file it
+      }
+      case "unsave": {
+        const d = await api("/api/save", { paper: p, saved: false });
+        Object.assign(p, { saved: d.saved, folders: d.folders });
+        showSaved(li, p);
+        togglePicker(li, p, false);
+        return syncLibrary(p, d.all);
+      }
       case "up":
       case "down": {
         const value = btn.dataset.act === "up" ? 1 : -1;
